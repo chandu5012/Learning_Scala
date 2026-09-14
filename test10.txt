@@ -1,0 +1,52 @@
+The Terraform plan confirms that the required Azure Function storage RBAC
+assignments will be created correctly.
+
+However, the plan shows:
+
+azurerm_linux_function_app.function[0] is tainted, so must be replaced
+
+Before making any change, investigate WHY this resource is currently tainted.
+
+Do NOT modify files.
+Do NOT run terraform apply.
+Do NOT run terraform untaint yet.
+
+Please inspect the current Terraform state and previous deployment behavior and answer:
+
+1. Confirm that azurerm_linux_function_app.function[0] is actually marked tainted in the current DEV Terraform state.
+
+2. Determine the likely reason it became tainted.
+   Check whether a previous failed Terraform apply / failed ZIP deployment
+   caused Terraform to mark the Function App tainted.
+
+3. Confirm whether there is any Terraform configuration change that genuinely
+   requires replacement of sox-dev-function, or whether replacement is happening
+   ONLY because the state is tainted.
+
+4. Show the exact state command/output proving the resource is tainted.
+
+5. Determine whether it is safe to run:
+
+   terraform untaint 'azurerm_linux_function_app.function[0]'
+
+6. Explain whether untainting will preserve the existing Function App
+   system-assigned principal ID.
+
+7. After untaint, show what the expected plan should contain.
+
+Expected desired result:
+
+- Existing sox-dev-function preserved
+- Existing Function principal ID preserved
+- No Function App destroy/recreate
+- 0 resources to destroy
+- Create the required storage RBAC assignments:
+  - Storage Blob Data Contributor
+  - Storage Queue Data Contributor
+  - Storage Blob Delegator
+  - Storage Table Data Contributor
+- Queue private endpoint remains update-in-place
+- Existing DNS A-record/private endpoint architecture remains unchanged
+
+Do not execute untaint or apply.
+Analysis only.
