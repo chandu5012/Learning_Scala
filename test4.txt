@@ -1,0 +1,309 @@
+Update the Terraform implementation for the SOX Azure Storage Queue Private Endpoint.
+
+Repository:
+vertexinc/vdf-soxcompliance-infra
+
+Path:
+azure-infra
+
+IMPORTANT:
+We now have a confirmed working internal Vertex reference from Sean Cooper.
+
+The shared Private DNS zones are centrally managed.
+
+Teams MUST NOT:
+- create private_dns_zone_group
+- join the shared Private DNS zone
+- create/update VNet links for the shared DNS zone
+
+Teams ARE allowed to:
+1. Create the Private Endpoint.
+2. Create an A record inside the centrally managed Private DNS zone.
+
+The existing implementation currently uses private_dns_zone_group and fails with:
+
+Microsoft.Network/privateDnsZones/join/action
+
+LinkedAuthorizationFailed.
+
+Replace that design with the working internal pattern described below.
+
+============================================================
+1. UPDATE providers.tf
+============================================================
+
+Keep the existing default provider:
+
+provider "azurerm" {
+  features {}
+
+  subscription_id     = var.subscription_id
+  tenant_id           = var.tenant_id
+  storage_use_azuread = true
+}
+
+Add a second provider for PDD Shared Resources:
+
+provider "azurerm" {
+  alias = "shared_resources"
+
+  features {}
+
+  subscription_id = var.shared_resources_subscription_id
+  tenant_id       = var.tenant_id
+}
+
+Do not replace the default provider.
+
+The default provider continues managing the SOX resources in:
+
+PDD CrossNet Development
+Subscription:
+be54cf53-5579-48b9-83eb-60ced48deccb
+
+The aliased provider is only for DNS records in:
+
+PDD Shared Resources
+Subscription:
+19feb3b2-c4c1-40fe-a23f-07491fdf66dc
+
+============================================================
+2. UPDATE variables.tf
+============================================================
+
+Add:
+
+variable "shared_resources_subscription_id" {
+  description = "Subscription ID containing centrally managed shared Private DNS zones."
+  type        = string
+}
+
+Keep the existing variable:
+
+variable "storage_privatelink_subnet_id" {
+  description = "Subnet resource ID used for the Azure Storage Queue private endpoint."
+  type        = string
+}
+
+REMOVE this variable if it was added previously:
+
+variable "queue_private_dns_zone_id" {
+  ...
+}
+
+It is no longer required because we are not creating a
+private_dns_zone_group.
+
+============================================================
+3. UPDATE environments/dev.tfvars
+============================================================
+
+Keep:
+
+storage_privatelink_subnet_id = "/subscriptions/be54cf53-5579-48b9-83eb-60ced48deccb/resourceGroups/pdd-crossnet-dev-vnet-central-us/providers/Microsoft.Network/virtualNetworks/pdd-crossnet-dev-privatelinks-vnet-central-us/subnets/pdd-crossnet-dev-privatelinks-vnet-central-us-private-private-link-subnet-0"
+
+Add:
+
+shared_resources_subscription_id = "19feb3b2-c4c1-40fe-a23f-07491fdf66dc"
+
+REMOVE:
+
+queue_private_dns_zone_id = "/subscriptions/19feb3b2-c4c1-40fe-a23f-07491fdf66dc/resourceGroups/pdd-sr-global-ce-private-links-east-us-2/providers/Microsoft.Network/privateDnsZones/privatelink.queue.core.windows.net"
+
+That full DNS zone ID is no longer needed.
+
+============================================================
+4. UPDATE main.tf - PRIVATE ENDPOINT
+============================================================
+
+Find the existing:
+
+resource "azurerm_private_endpoint" "storage_queue"
+
+Replace it with:
+
+resource "azurerm_private_endpoint" "storage_queue" {
+  count = local.file_processing_enabled ? 1 : 0
+
+  name                = "${var.queue_name}-pe"
+  location            = data.azurerm_resource_group.shared.location
+  resource_group_name = data.azurerm_resource_group.shared.name
+  subnet_id           = var.storage_privatelink_subnet_id
+
+  private_service_connection {
+    name                           = "${var.queue_name}-psc"
+    private_connection_resource_id = data.azurerm_storage_account.shared.id
+    subresource_names              = ["queue"]
+    is_manual_connection           = false
+  }
+
+  tags = var.tags
+}
+
+CRITICAL:
+
+There must be NO:
+
+private_dns_zone_group {
+  ...
+}
+
+inside this resource.
+
+Do NOT create any private DNS zone group.
+Do NOT attempt privateDnsZones/join/action.
+
+============================================================
+5. ADD SEPARATE QUEUE PRIVATE DNS A RECORD
+============================================================
+
+Immediately after the azurerm_private_endpoint.storage_queue
+resource, add:
+
+resource "azurerm_private_dns_a_record" "storage_queue" {
+  count = local.file_processing_enabled ? 1 : 0
+
+  provider = azurerm.shared_resources
+
+  name                = data.azurerm_storage_account.shared.name
+  zone_name           = "privatelink.queue.core.windows.net"
+  resource_group_name = "pdd-sr-global-ce-private-links-east-us-2"
+  ttl                 = 300
+
+  records = [
+    azurerm_private_endpoint.storage_queue[0].private_service_connection[0].private_ip_address
+  ]
+}
+
+This follows the confirmed working internal Vertex pattern.
+
+For the storage account:
+
+vtxcusvdpdataplatfe1a54
+
+the resulting DNS A record should conceptually be:
+
+vtxcusvdpdataplatfe1a54.privatelink.queue.core.windows.net
+
+pointing to the private IP allocated to:
+
+azurerm_private_endpoint.storage_queue[0]
+
+Do NOT hardcode the private IP.
+
+Always obtain it using:
+
+azurerm_private_endpoint.storage_queue[0].private_service_connection[0].private_ip_address
+
+This ensures that if the Private Endpoint is recreated and receives a
+different private IP, Terraform updates the DNS A record automatically.
+
+============================================================
+6. EXPECTED DESIGN
+============================================================
+
+Existing Storage Account:
+
+vtxcusvdpdataplatfe1a54
+
+        |
+        +-- Blob
+        |     |
+        |     +-- existing Blob PE
+        |
+        +-- Queue
+              |
+              +-- sox-dev-queue
+                    |
+                    +-- Queue Private Endpoint
+                            |
+                            +-- Private IP
+                                   |
+                                   +-- DNS A record
+                                       using azurerm.shared_resources
+                                       |
+                                       +-- privatelink.queue.core.windows.net
+
+
+PRIVATE ENDPOINT:
+
+Managed in:
+PDD CrossNet Development
+
+DNS A RECORD:
+
+Managed in:
+PDD Shared Resources
+
+Shared DNS Zone:
+privatelink.queue.core.windows.net
+
+DNS Resource Group:
+pdd-sr-global-ce-private-links-east-us-2
+
+============================================================
+7. DO NOT CREATE OR MODIFY
+============================================================
+
+Do NOT create:
+
+- azurerm_private_dns_zone
+- azurerm_private_dns_zone_virtual_network_link
+- private_dns_zone_group
+- shared DNS zone
+- VNet DNS link
+
+Do NOT attempt:
+
+Microsoft.Network/privateDnsZones/join/action
+
+Do not recreate the existing Blob Private Endpoint.
+
+Do not create a new Storage Account.
+
+============================================================
+8. VALIDATE
+============================================================
+
+Run:
+
+terraform fmt -recursive
+
+terraform validate
+
+terraform plan -var-file=environments/dev.tfvars
+
+The Terraform plan should now contain approximately:
+
++ azurerm_private_endpoint.storage_queue[0]
+
++ azurerm_private_dns_a_record.storage_queue[0]
+
+It must NOT contain:
+
+private_dns_zone_group
+
+It must NOT attempt to join:
+
+privatelink.queue.core.windows.net
+
+The DNS A record should show:
+
+provider:
+azurerm.shared_resources
+
+zone_name:
+privatelink.queue.core.windows.net
+
+resource_group_name:
+pdd-sr-global-ce-private-links-east-us-2
+
+name:
+vtxcusvdpdataplatfe1a54
+
+records:
+private IP from azurerm_private_endpoint.storage_queue[0]
+
+Do NOT run Deploy automatically.
+
+Run PLAN first and provide the resulting plan for review.
