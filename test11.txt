@@ -1,0 +1,97 @@
+Good. Do not modify any files yet.
+
+We have now confirmed:
+
+1. DEV uses:
+   enable_file_processing = "YES"
+
+2. Therefore:
+   local.file_processing_enabled = true
+
+3. Terraform intends to create these Function App RBAC assignments:
+   - Storage Blob Data Contributor
+   - Storage Queue Data Contributor
+   - Storage Blob Delegator
+   - Storage Table Data Contributor
+
+4. The Function App system-assigned managed identity is the TARGET principal
+   receiving those roles.
+
+5. The GitHub/Terraform deployment identity is a DIFFERENT identity and is
+   selected using:
+
+   ARM_CLIENT_ID = ${{ vars.AZURE_CLIENT_ID }}
+
+6. The current Terraform plan also shows:
+
+   azurerm_linux_function_app.function[0] is tainted
+
+Now investigate ONLY the following. Do not edit files and do not run apply.
+
+PART A - Deployment identity
+
+1. Identify the exact Azure client ID used by the DEV deploy workflow from
+   vars.AZURE_CLIENT_ID.
+
+2. Determine whether this identity is:
+   - service principal
+   - user-assigned managed identity
+   - another identity type
+
+3. Show me exactly how to verify in Azure that this deployment identity has:
+
+   Microsoft.Authorization/roleAssignments/write
+
+   at the scope containing storage account:
+
+   vtxcusvdpdataplatfe1a54
+
+4. Check whether the identity has one of:
+   - Owner
+   - User Access Administrator
+   - Role Based Access Control Administrator
+   - custom role containing Microsoft.Authorization/roleAssignments/write
+
+5. Important:
+   Do NOT check the Function App managed identity for this permission.
+   Check the deployment identity represented by vars.AZURE_CLIENT_ID.
+
+PART B - Function App taint
+
+6. Determine whether the Function App replacement is caused ONLY by Terraform taint.
+
+7. Show the exact command that can confirm the resource is tainted in the DEV backend/state.
+
+8. Determine whether it is safe to run:
+
+   terraform untaint 'azurerm_linux_function_app.function[0]'
+
+9. Explain whether untainting keeps:
+   - the existing Function App
+   - the existing system-assigned principal ID
+   - the existing Function configuration
+
+10. After untainting, tell me what the expected plan should look like.
+
+Desired result:
+
+- 0 Function App replacements
+- 0 resources destroyed
+- existing sox-dev-function preserved
+- existing Function principal ID preserved
+- create the four storage RBAC assignments
+- queue private endpoint updated in-place only
+- existing DNS architecture unchanged
+
+PART C - Exact next action
+
+At the end, give me only one of these conclusions:
+
+A. Safe to untaint and rerun plan
+B. Deployment identity permission must be fixed first
+C. Function replacement is genuinely required
+D. Another specific blocker exists
+
+Do not modify anything.
+Do not run terraform apply.
+Do not commit or push anything.
