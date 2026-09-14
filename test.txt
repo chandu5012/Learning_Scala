@@ -1,0 +1,247 @@
+Update the Terraform code in the repository:
+
+vertexinc/vdf-soxcompliance-infra
+Path: azure-infra
+
+Goal:
+Add an Azure Storage Queue Private Endpoint for the existing shared storage account used by the SOX DEV application.
+
+Important:
+- Do NOT create a new storage account.
+- Do NOT modify or recreate the existing Blob Private Endpoint.
+- The existing shared storage account is already referenced using:
+  data.azurerm_storage_account.shared
+- The existing queue is already created using:
+  azurerm_storage_queue.events
+- The new Private Endpoint must target the Queue subresource only.
+- Use the existing Terraform style and formatting.
+- Do not change unrelated resources.
+- Do not change providers.tf unless absolutely required.
+- Do not invent DNS subscription/resource-group values.
+- Use a variable for the Queue Private DNS Zone resource ID because the exact full resource ID is not yet confirmed.
+- The Queue Private Endpoint should be created only when file processing is enabled.
+
+Make the following exact changes.
+
+============================================================
+1. UPDATE: azure-infra/main.tf
+============================================================
+
+Find the existing block:
+
+resource "azurerm_storage_queue" "events" {
+  count                = local.file_processing_enabled ? 1 : 0
+  name                 = var.queue_name
+  storage_account_name = data.azurerm_storage_account.shared.name
+}
+
+Immediately AFTER this resource and BEFORE the azurerm_service_plan resource, add:
+
+resource "azurerm_private_endpoint" "storage_queue" {
+  count = local.file_processing_enabled ? 1 : 0
+
+  name                = "${var.queue_name}-pe"
+  location            = data.azurerm_resource_group.shared.location
+  resource_group_name = data.azurerm_resource_group.shared.name
+  subnet_id           = var.storage_privatelink_subnet_id
+
+  private_service_connection {
+    name                           = "${var.queue_name}-psc"
+    private_connection_resource_id = data.azurerm_storage_account.shared.id
+    subresource_names              = ["queue"]
+    is_manual_connection           = false
+  }
+
+  private_dns_zone_group {
+    name = "queue-dns-zone-group"
+
+    private_dns_zone_ids = [
+      var.queue_private_dns_zone_id
+    ]
+  }
+
+  tags = var.tags
+}
+
+Do not modify the existing queue resource.
+
+The expected resource relationship is:
+
+Existing shared Storage Account:
+data.azurerm_storage_account.shared
+
+Existing Queue:
+azurerm_storage_queue.events
+
+New Queue Private Endpoint:
+azurerm_private_endpoint.storage_queue
+
+The private endpoint must use:
+
+private_connection_resource_id = data.azurerm_storage_account.shared.id
+
+and:
+
+subresource_names = ["queue"]
+
+============================================================
+2. UPDATE: azure-infra/variables.tf
+============================================================
+
+Find the existing queue variable:
+
+variable "queue_name" {
+  type    = string
+  default = "sox-events"
+}
+
+Immediately AFTER it, add:
+
+variable "storage_privatelink_subnet_id" {
+  description = "Subnet resource ID used for the Azure Storage Queue private endpoint."
+  type        = string
+}
+
+variable "queue_private_dns_zone_id" {
+  description = "Resource ID of the Azure Private DNS zone privatelink.queue.core.windows.net."
+  type        = string
+}
+
+Do not add defaults for these variables.
+
+============================================================
+3. UPDATE: azure-infra/environments/dev.tfvars
+============================================================
+
+Find:
+
+queue_name = "sox-dev-queue"
+
+Immediately AFTER it, add:
+
+storage_privatelink_subnet_id = "/subscriptions/be54cf53-5579-48b9-83eb-60ced48deccb/resourceGroups/pdd-crossnet-dev-vnet-central-us/providers/Microsoft.Network/virtualNetworks/pdd-crossnet-dev-privatelinks-vnet-central-us/subnets/pdd-crossnet-dev-privatelinks-vnet-central-us-private-private-link-subnet-0"
+
+queue_private_dns_zone_id = "<QUEUE_PRIVATE_DNS_ZONE_RESOURCE_ID>"
+
+Important:
+Do NOT replace <QUEUE_PRIVATE_DNS_ZONE_RESOURCE_ID> with a guessed value.
+
+The Azure Private DNS Zone is confirmed to exist and is named:
+
+privatelink.queue.core.windows.net
+
+but its exact full Azure Resource ID is not yet confirmed.
+
+============================================================
+4. DO NOT CHANGE: azure-infra/providers.tf
+============================================================
+
+Current provider configuration is:
+
+provider "azurerm" {
+  features {}
+
+  subscription_id     = var.subscription_id
+  tenant_id           = var.tenant_id
+  storage_use_azuread = true
+}
+
+Leave this unchanged for now.
+
+Do not introduce a second provider or provider alias unless Terraform validation proves it is required.
+
+============================================================
+5. VALIDATION
+============================================================
+
+Run:
+
+terraform fmt -recursive
+
+terraform validate
+
+terraform plan -var-file=environments/dev.tfvars
+
+The Terraform plan should include creation of:
+
+azurerm_private_endpoint.storage_queue[0]
+
+Expected behavior:
+
++ Queue Private Endpoint is created
++ Target storage account is the existing shared storage account
++ Target sub-resource is queue
++ DEV private-link subnet is used
++ Queue Private DNS zone is associated
++ Existing Blob Private Endpoint is untouched
++ Existing Storage Account is untouched
++ Existing Blob container is untouched
++ Existing Queue resource is not unnecessarily replaced
+
+The plan must NOT show:
+
+- creation of a new azurerm_storage_account
+- deletion/recreation of the existing storage account
+- deletion/recreation of the existing Blob Private Endpoint
+- replacement of unrelated Function App, Key Vault, Event Grid, or role assignment resources
+
+============================================================
+6. CURRENT CONFIRMED DEV NETWORK DETAILS
+============================================================
+
+Subscription:
+PDD CrossNet Development
+
+Subscription ID:
+be54cf53-5579-48b9-83eb-60ced48deccb
+
+Resource Group:
+pdd-crossnet-dev-vnet-central-us
+
+Virtual Network:
+pdd-crossnet-dev-privatelinks-vnet-central-us
+
+Subnet:
+pdd-crossnet-dev-privatelinks-vnet-central-us-private-private-link-subnet-0
+
+Existing shared Storage Account:
+vtxcusvdpdataplatfe1a54
+
+Existing Queue:
+sox-dev-queue
+
+Existing Blob Private Endpoint:
+Already exists and is working.
+
+Existing Blob Private Endpoint target sub-resource:
+blob
+
+New Private Endpoint target sub-resource:
+queue
+
+Queue Private DNS Zone:
+privatelink.queue.core.windows.net
+
+============================================================
+7. IMPORTANT ARCHITECTURE RULE
+============================================================
+
+Azure Storage private endpoints are sub-resource specific.
+
+Current setup:
+
+Storage Account
+├── blob
+│   └── Existing Blob Private Endpoint
+│
+└── queue
+    └── NEW Queue Private Endpoint
+
+Do not try to reuse or modify the Blob Private Endpoint for Queue.
+
+Generate the code changes only in:
+- azure-infra/main.tf
+- azure-infra/variables.tf
+- azure-infra/environments/dev.tfvars
+
+Keep all other existing code unchanged.
