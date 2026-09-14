@@ -1,0 +1,11 @@
+az network private-dns zone list \
+  --query "[?name=='privatelink.queue.core.windows.net'].{Name:name,ResourceGroup:resourceGroup,ResourceId:id}" \
+  -o table
+
+for sub in $(az account list --query "[].id" -o tsv); do
+  echo "Checking subscription: $sub"
+  az network private-dns zone list \
+    --subscription "$sub" \
+    --query "[?name=='privatelink.queue.core.windows.net'].{Name:name,ResourceGroup:resourceGroup,ResourceId:id}" \
+    -o table 2>/dev/null
+done
