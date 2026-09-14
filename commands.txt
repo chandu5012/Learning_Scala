@@ -49,3 +49,10 @@ az role assignment list \
   --all \
   --query "[].{Role:roleDefinitionName,Scope:scope}" \
   -o table
+
+
+az role assignment list \
+  --assignee-object-id "a5f112b0-7ccd-43f6-bef6-73aa52452be4" \
+  --all \
+  --query "[].{Role:roleDefinitionName,Scope:scope}" \
+  -o table
