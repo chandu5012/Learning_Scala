@@ -12,3 +12,17 @@ az ad app show \
   --id "de429f54-8909-4b59-bbe0-3dd7df92bde9" \
   --query "{displayName:displayName, appId:appId, objectId:id}" \
   -o table
+
+
+az account set \
+  --subscription "be54cf53-5579-48b9-83eb-60ced48deccb"
+
+
+az account show \
+  --query "{subscription:name, subscriptionId:id, tenantId:tenantId}" \
+  -o table
+
+az ad sp show \
+  --id "de429f54-8909-4b59-bbe0-3dd7df92bde9" \
+  --query "{displayName:displayName, appId:appId, objectId:id, type:servicePrincipalType}" \
+  -o table
