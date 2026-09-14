@@ -1,0 +1,69 @@
+Please analyze the CURRENT repository state for the Azure Function App storage authorization issue. Do not assume that any previous Copilot-generated changes were accepted, because I did not click Keep on the previous response.
+
+Current problem:
+
+Azure Function App:
+sox-dev-function
+
+Shared Storage Account:
+vtxcusvdpdataplatfe1a54
+
+Azure Function diagnostics shows:
+"Unable to access AzureWebJobsStorage"
+errorCode: "AuthorizationFailure"
+
+The Function App uses a SystemAssigned managed identity.
+
+Current Terraform configuration already uses managed identity for AzureWebJobsStorage:
+
+identity {
+  type = "SystemAssigned"
+}
+
+AzureWebJobsStorage__accountName = data.azurerm_storage_account.shared.name
+AzureWebJobsStorage__credential  = "managedidentity"
+
+storage_uses_managed_identity = true
+
+Azure Portal -> Storage Account -> IAM -> Check access -> Managed Identity -> sox-dev-function currently shows:
+Role assignments (0)
+
+Task:
+
+1. Inspect the CURRENT Terraform files in azure-infra and determine why the Function App system-assigned managed identity has no RBAC roles on the shared storage account.
+
+2. Do NOT rely on previous Copilot changes or conversation history. Use only the files currently present in the repository.
+
+3. Identify the exact Terraform changes required to grant the Function App managed identity the storage data-plane permissions required by AzureWebJobsStorage.
+
+4. At minimum evaluate whether these roles are required:
+   - Storage Blob Data Contributor
+   - Storage Queue Data Contributor
+   - Storage Table Data Contributor
+   - Storage Blob Delegator
+
+Do not add unnecessary roles. Explain why each role is or is not required for this Function App.
+
+5. All role assignments must target:
+   scope = data.azurerm_storage_account.shared.id
+
+and the principal must be the Function App system-assigned identity:
+   azurerm_linux_function_app.function[0].identity[0].principal_id
+
+6. Preserve the existing private networking configuration, queue private endpoint, private DNS configuration, Function App settings, and existing resources. Do NOT redesign them.
+
+7. Check Terraform dependency ordering. The role assignments must be created after the Function App managed identity exists.
+
+8. Before modifying anything, show me:
+   - root cause
+   - files that need modification
+   - exact Terraform resources you propose adding/changing
+   - roles required and reason for each
+   - expected terraform plan impact
+
+IMPORTANT:
+Do NOT edit files yet.
+Do NOT commit.
+Do NOT push.
+Do NOT run terraform apply.
+First provide the analysis and proposed code changes only. Wait for my approval.
