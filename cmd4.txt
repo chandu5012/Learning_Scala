@@ -1,0 +1,55 @@
+Proceed with the next step for the DEV Terraform state.
+
+The current Azure plan shows:
+- 6 to add
+- 5 to change
+- 1 to destroy
+
+The only destroy/replacement is:
+azurerm_linux_function_app.function[0]
+
+Reason:
+The resource is tainted.
+
+The existing Function App must be preserved:
+sox-dev-function
+
+Expected existing principal ID:
+e1c7f3e1-71eb-4162-90d3-1a38d5ba01c8
+
+The four required Function storage RBAC assignments are already present in the plan:
+- Storage Blob Data Contributor
+- Storage Queue Data Contributor
+- Storage Blob Delegator
+- Storage Table Data Contributor
+
+Now do the following carefully:
+
+1. Use the DEV Terraform remote backend/state.
+2. Verify that azurerm_linux_function_app.function[0] in Terraform state corresponds to the existing Azure Function App sox-dev-function.
+3. Verify the existing Function App is still present and its principal ID is:
+   e1c7f3e1-71eb-4162-90d3-1a38d5ba01c8
+4. If both match, remove ONLY the taint from:
+   azurerm_linux_function_app.function[0]
+5. Do NOT remove the resource from state.
+6. Do NOT import anything.
+7. Do NOT destroy or recreate the Function App.
+8. Do NOT run terraform apply or the deploy workflow.
+9. After untainting, rerun the DEV Terraform PLAN only using the latest feature/sox-azure-latest code.
+10. Verify the new plan shows:
+    - 0 to destroy
+    - no "-/+" replacement for azurerm_linux_function_app.function[0]
+    - no "must be replaced"
+    - the four required RBAC assignments remain planned/preserved
+    - sox-dev-function remains the existing Function App
+    - queue private endpoint and DNS resources are not unexpectedly replaced
+
+Stop after generating and analysing the new plan.
+
+Show me:
+- the exact untaint command executed
+- confirmation of the Function App/principal ID before untaint
+- the final Terraform plan summary
+- whether it is now safe to proceed to the deploy workflow
+
+Do not modify any additional Terraform or workflow files unless the new plan reveals a separate real issue.
