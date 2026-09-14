@@ -32,3 +32,11 @@ az ad sp list \
   --filter "appId eq 'de429f54-8909-4b59-bbe0-3dd7df92bde9'" \
   --query "[].{displayName:displayName,appId:appId,objectId:id,servicePrincipalType:servicePrincipalType}" \
   -o table
+
+
+az role assignment list \
+  --assignee "a5f112b0-7ccd-43f6-bef6-73aa52452be4" \
+  --include-inherited \
+  --all \
+  --query "[].{Role:roleDefinitionName,Scope:scope}" \
+  -o table
