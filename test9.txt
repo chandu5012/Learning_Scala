@@ -1,0 +1,75 @@
+Good. Do not modify any files yet.
+
+We have confirmed:
+
+1. The current Terraform repository already contains Function App RBAC resources.
+2. Azure Portal currently shows 0 role assignments for the
+   sox-dev-function managed identity on storage account:
+   vtxcusvdpdataplatfe1a54
+3. The RBAC resources are conditional on:
+   local.file_processing_enabled
+4. The Function App currently exists in Azure.
+
+Now trace the ACTUAL DEV deployment configuration end-to-end.
+
+Please inspect:
+- GitHub Actions plan workflow
+- GitHub Actions deploy/apply workflow
+- DEV tfvars
+- Terraform variables
+- locals
+- module/resource conditions
+- environment inputs
+- enable_file_processing handling
+- Terraform backend/state configuration
+
+Determine exactly what value reaches:
+
+local.file_processing_enabled
+
+during the DEV GitHub Actions deployment.
+
+Then determine whether Terraform PLAN should contain these resources:
+
+azurerm_role_assignment.function_storage_blob
+azurerm_role_assignment.function_storage_queue
+azurerm_role_assignment.function_storage_delegator
+azurerm_role_assignment.function_storage_table
+
+Also check whether the deployment Managed Identity used by GitHub/Terraform
+has permission to CREATE role assignments on:
+
+data.azurerm_storage_account.shared.id
+
+Specifically determine whether it has:
+Microsoft.Authorization/roleAssignments/write
+
+Important:
+The Function App managed identity needing Blob/Queue access is different
+from the Terraform deployment Managed Identity needing permission to
+CREATE those role assignments. Do not confuse these two identities.
+
+Also inspect the Terraform state and determine whether these four
+azurerm_role_assignment resources are currently present in state.
+
+I need a concise diagnostic report showing:
+
+1. Actual DEV value of enable_file_processing
+2. Actual value of local.file_processing_enabled
+3. Whether each RBAC resource should have count = 1 or count = 0
+4. Whether each RBAC resource exists in Terraform state
+5. Whether the next terraform plan would CREATE each role assignment
+6. Which Managed Identity GitHub/Terraform is using
+7. Whether that deployment identity has roleAssignments/write permission
+8. Exact reason Azure currently shows 0 assignments
+9. Exact next action required
+
+Do NOT:
+- edit Terraform
+- add new RBAC resources
+- commit
+- push
+- run terraform apply
+- remove existing resources
+
+Analysis only.
