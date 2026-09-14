@@ -1,0 +1,227 @@
+Update the Terraform code in:
+
+Repository:
+vertexinc/vdf-soxcompliance-infra
+
+Path:
+azure-infra
+
+Goal:
+Fix the Azure Function App AzureWebJobsStorage AuthorizationFailure when using managed identity.
+
+Current Function App configuration already uses managed identity correctly:
+
+identity {
+  type = "SystemAssigned"
+}
+
+app_settings = {
+  FUNCTIONS_WORKER_RUNTIME         = "python"
+  AzureWebJobsStorage__accountName = data.azurerm_storage_account.shared.name
+  AzureWebJobsStorage__credential  = "managedidentity"
+
+  INPUT_PREFIX                 = var.input_prefix
+  CONFLUENCE_BASE_URL          = var.confluence_base_url
+  CONFLUENCE_SPACE_KEY         = var.confluence_space_key
+  CONFLUENCE_PARENT_PAGE_ID    = var.confluence_parent_page_id
+  CONFLUENCE_SECRET_NAME       = var.confluence_secret_name
+  KEY_VAULT_URI                = azurerm_key_vault.sox[0].vault_uri
+  CONFLUENCE_PAGE_TITLE_PREFIX = var.confluence_page_title_prefix
+  MAX_FILE_SIZE_BYTES          = tostring(var.max_file_size_bytes)
+  SOURCE_ENVIRONMENT           = var.environment
+  STORAGE_LINK_EXPIRATION      = tostring(var.storage_link_expiration_seconds)
+  STORAGE_ACCOUNT_NAME         = data.azurerm_storage_account.shared.name
+  QUEUE_NAME                   = var.queue_name
+  STORAGE_LINK_METHOD          = upper(var.storage_link_method)
+}
+
+storage_uses_managed_identity = true
+
+Azure diagnostics show:
+
+Unable to access AzureWebJobsStorage
+AuthorizationFailure
+
+Therefore, do NOT change the AzureWebJobsStorage managed identity app settings.
+
+The issue is storage RBAC for the Function App system-assigned managed identity.
+
+============================================================
+1. UPDATE THE EXISTING BLOB ROLE ASSIGNMENT
+============================================================
+
+Find the existing role assignment similar to:
+
+resource "azurerm_role_assignment" "function_storage_blob" {
+  count                = local.file_processing_enabled ? 1 : 0
+  scope                = data.azurerm_storage_account.shared.id
+  role_definition_name = "Storage Blob Data Reader"
+  principal_id         = azurerm_linux_function_app.function[0].identity[0].principal_id
+}
+
+Change ONLY:
+
+role_definition_name = "Storage Blob Data Reader"
+
+to:
+
+role_definition_name = "Storage Blob Data Contributor"
+
+The final block should be:
+
+resource "azurerm_role_assignment" "function_storage_blob" {
+  count                = local.file_processing_enabled ? 1 : 0
+  scope                = data.azurerm_storage_account.shared.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = azurerm_linux_function_app.function[0].identity[0].principal_id
+}
+
+Reason:
+AzureWebJobsStorage requires write access to blobs for Function host/runtime state and leases.
+Storage Blob Data Reader is insufficient.
+
+============================================================
+2. KEEP THE EXISTING QUEUE ROLE ASSIGNMENT
+============================================================
+
+Do NOT remove or downgrade the existing Queue role.
+
+It should remain similar to:
+
+resource "azurerm_role_assignment" "function_storage_queue" {
+  count                = local.file_processing_enabled ? 1 : 0
+  scope                = data.azurerm_storage_account.shared.id
+  role_definition_name = "Storage Queue Data Contributor"
+  principal_id         = azurerm_linux_function_app.function[0].identity[0].principal_id
+}
+
+Keep this unchanged.
+
+============================================================
+3. ADD TABLE DATA ROLE IF NOT ALREADY PRESENT
+============================================================
+
+Check whether a role assignment already exists for:
+
+Storage Table Data Contributor
+
+If it does not exist, add:
+
+resource "azurerm_role_assignment" "function_storage_table" {
+  count                = local.file_processing_enabled ? 1 : 0
+  scope                = data.azurerm_storage_account.shared.id
+  role_definition_name = "Storage Table Data Contributor"
+  principal_id         = azurerm_linux_function_app.function[0].identity[0].principal_id
+}
+
+Reason:
+Azure Functions host storage / Durable Functions may require Table access.
+Adding this prevents AzureWebJobsStorage failures if table storage is used by the runtime.
+
+Do not create duplicate role assignments if this role already exists.
+
+============================================================
+4. KEEP STORAGE BLOB DELEGATOR IF ALREADY PRESENT
+============================================================
+
+If this role exists:
+
+role_definition_name = "Storage Blob Delegator"
+
+leave it unchanged.
+
+It is used for user-delegation SAS and is separate from Function host storage access.
+
+============================================================
+5. DO NOT CHANGE KEY VAULT CONFIGURATION
+============================================================
+
+Do not change:
+
+CONFLUENCE_SECRET_NAME
+KEY_VAULT_URI
+Key Vault role assignments
+Confluence configuration
+
+The current failure is:
+
+AzureWebJobsStorage AuthorizationFailure
+
+This is a storage authorization issue, not a confirmed Key Vault issue.
+
+============================================================
+6. DO NOT CHANGE FUNCTION APP MANAGED IDENTITY SETTINGS
+============================================================
+
+Keep:
+
+identity {
+  type = "SystemAssigned"
+}
+
+Keep:
+
+AzureWebJobsStorage__accountName = data.azurerm_storage_account.shared.name
+
+Keep:
+
+AzureWebJobsStorage__credential = "managedidentity"
+
+Keep:
+
+storage_uses_managed_identity = true
+
+Do not replace managed identity with a storage account key or connection string.
+
+============================================================
+7. EXPECTED STORAGE RBAC AFTER CHANGE
+============================================================
+
+The Function App system-assigned identity should have these data-plane roles on:
+
+data.azurerm_storage_account.shared.id
+
+Expected roles:
+
+Storage Blob Data Contributor
+Storage Queue Data Contributor
+Storage Table Data Contributor
+
+Optional/existing role:
+
+Storage Blob Delegator
+
+Do not remove any existing required role unless it is clearly obsolete.
+
+============================================================
+8. VALIDATION
+============================================================
+
+Run:
+
+terraform fmt -recursive
+
+terraform validate
+
+terraform plan -var-file=environments/dev.tfvars
+
+Review the plan.
+
+Expected plan behavior:
+
+- Existing "Storage Blob Data Reader" role assignment may be replaced because the role definition is changing.
+- New "Storage Blob Data Contributor" role assignment should be created.
+- "Storage Queue Data Contributor" should remain.
+- "Storage Table Data Contributor" should be added if not already present.
+- Do not recreate the storage account.
+- Do not modify Queue Private Endpoint/DNS changes.
+- Do not modify unrelated Function App settings.
+
+Do NOT run deploy/apply automatically.
+
+Show the Terraform plan first.
+
+After apply, verify Azure Function diagnostics no longer show:
+
+Unable to access AzureWebJobsStorage
+AuthorizationFailure
