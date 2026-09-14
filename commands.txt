@@ -56,3 +56,114 @@ az role assignment list \
   --all \
   --query "[].{Role:roleDefinitionName,Scope:scope}" \
   -o table
+
+
+
+
+
+Please continue from the current diagnosis of the Azure Function App deployment issue.
+
+Important:
+- Do NOT modify any files yet.
+- Do NOT make assumptions from previous Copilot-generated changes.
+- Analyze only the current repository state, current Terraform plan, current workflow configuration, and the Azure behavior already identified.
+- Do NOT focus again on the Function App managed identity RBAC unless it is directly relevant to the ZIP deployment failure.
+- We already confirmed the deployment identity and the Function identity are different concepts.
+
+Current problem:
+Terraform deploy is failing while publishing:
+
+./function/sox-function.zip
+
+to:
+
+sox-dev-function
+
+with an error similar to:
+
+"waiting for Zip Deployment to complete"
+
+The Function App previously showed:
+"Unable to access AzureWebJobsStorage"
+"AuthorizationFailure"
+
+The Terraform configuration currently uses managed identity for AzureWebJobsStorage.
+
+Now investigate the actual deployment flow end to end.
+
+Check all of the following carefully:
+
+1. How `azurerm_linux_function_app.function` is created.
+
+2. How `zip_deploy_file` or the Function ZIP package is attached to the Function App.
+
+3. Whether Terraform is trying to deploy the ZIP during the same resource creation/update before required storage RBAC role assignments are fully available.
+
+4. Whether the Function App starts immediately after creation and tries to access AzureWebJobsStorage before these role assignments are effective:
+   - Storage Blob Data Contributor
+   - Storage Queue Data Contributor
+   - Storage Blob Delegator
+   - Storage Table Data Contributor
+
+5. Whether there is any missing explicit dependency between:
+   - Function App creation
+   - managed identity creation
+   - storage RBAC assignments
+   - Function ZIP/package deployment
+
+6. Whether the package deployment should be separated from infrastructure creation.
+
+7. Check whether `zip_deploy_file` inside `azurerm_linux_function_app` is causing Terraform to wait for Kudu/Zip Deploy while the Function host is unhealthy because AzureWebJobsStorage is not yet accessible.
+
+8. Check whether RBAC propagation delay is also a factor even after role assignments are created.
+
+9. Check whether the current Terraform design can preserve the existing Function App without destroy/recreate.
+
+10. Check whether a two-phase deployment is safer:
+
+Phase 1:
+- Create/update Function App
+- Enable system-assigned identity
+- Create storage RBAC assignments
+- Complete infrastructure deployment
+
+Phase 2:
+- Deploy `sox-function.zip`
+- Only after RBAC is available and the Function host can access AzureWebJobsStorage
+
+11. Check the GitHub Actions workflow and confirm whether package deployment can be moved into a separate step after Terraform apply instead of being embedded in the Function App resource.
+
+12. Identify exactly which current files control:
+- Function App resource
+- RBAC assignments
+- ZIP packaging
+- Terraform apply
+- Function application deployment
+
+13. Check whether `depends_on` alone is sufficient, or whether the package deployment must be separated because Azure RBAC propagation can still take time after Terraform creates the role assignments.
+
+14. Also confirm whether the existing tainted Function App state is related to this issue or is a separate problem. Do not untaint anything yet.
+
+Do not change anything yet.
+
+Give me only the following output:
+
+A. Exact root cause of the current ZIP deployment failure.
+
+B. Exact deployment sequence that is happening now.
+
+C. Exact deployment sequence that should happen.
+
+D. Whether the Function ZIP deployment must be separated from `azurerm_linux_function_app`.
+
+E. Exact Terraform files/resources that need modification.
+
+F. Exact GitHub Actions workflow file/steps that need modification.
+
+G. Whether `depends_on` is enough or a two-phase deployment is required.
+
+H. Whether the existing Function App can be preserved without destroy/recreate.
+
+I. Minimal recommended fix.
+
+J. After the analysis, show the proposed code/workflow changes as a diff, but DO NOT apply or edit any files until I explicitly approve.
