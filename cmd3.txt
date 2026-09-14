@@ -1,0 +1,48 @@
+The implementation changes are complete.
+
+Do not modify any more files.
+Do not run terraform apply.
+Do not run terraform untaint.
+Do not modify Terraform state.
+
+Now review the repository and tell me exactly which existing GitHub Actions
+PLAN workflow I should run for DEV to validate these changes.
+
+Requirements:
+
+1. Identify the exact plan workflow file/name already present in .github/workflows.
+2. Identify the exact workflow_dispatch inputs I must select.
+3. Environment must be DEV.
+4. enable_file_processing must be YES.
+5. Do not create a new workflow.
+6. Do not change any files.
+7. Do not run deployment/apply.
+
+The purpose of this run is only to generate a fresh Terraform plan using the
+real remote backend/state.
+
+After identifying the workflow, tell me exactly what values to enter in the
+GitHub Actions UI.
+
+The resulting plan must be checked for:
+
+- 0 to destroy
+- no Function App replacement
+- no "-/+" for azurerm_linux_function_app.function[0]
+- no "must be replaced" for the Function App
+- four Function storage RBAC assignments created/preserved
+- queue private endpoint not recreated
+- existing Function App preserved
+
+IMPORTANT:
+If the plan still says:
+
+azurerm_linux_function_app.function[0] is tainted
+
+do not recommend deployment.
+We will handle the taint separately after reviewing the real plan.
+
+Return only:
+1. Exact GitHub Actions workflow name
+2. Exact inputs/values to select
+3. What I should verify in the resulting plan
