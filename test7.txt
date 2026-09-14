@@ -1,0 +1,113 @@
+Please analyze the existing Terraform code in this repository and fix the Azure Function App storage authorization issue.
+
+Current problem:
+- Azure Function App: sox-dev-function
+- Storage account: vtxcusvdpdataplatfe1a54
+- Function App diagnostics show:
+  "Unable to access AzureWebJobsStorage"
+  "AuthorizationFailure"
+- Azure Storage Account -> IAM -> Check access -> Managed Identity -> sox-dev-function shows:
+  Role assignments (0)
+
+Current Terraform configuration in azure-infra/main.tf uses a system-assigned managed identity:
+
+resource "azurerm_linux_function_app" "function" {
+  ...
+  identity {
+    type = "SystemAssigned"
+  }
+
+  app_settings = {
+    FUNCTIONS_WORKER_RUNTIME              = "python"
+    AzureWebJobsStorage__accountName      = data.azurerm_storage_account.shared.name
+    AzureWebJobsStorage__credential       = "managedidentity"
+    ...
+  }
+
+  storage_uses_managed_identity = true
+}
+
+Therefore the Function App is intentionally using its own system-assigned managed identity to access AzureWebJobsStorage, but that identity currently has no RBAC data-plane permissions on the storage account.
+
+TASK:
+
+1. Inspect the complete azure-infra Terraform implementation before changing anything.
+
+2. Find:
+   - data.azurerm_storage_account.shared
+   - azurerm_linux_function_app.function
+   - all existing azurerm_role_assignment resources
+   - any existing storage RBAC implementation
+   - count/for_each conditions related to file_processing_enabled
+   - existing naming conventions and dependencies.
+
+3. Do NOT modify or remove the existing queue private endpoint configuration.
+   The queue private endpoint/private DNS work is a separate networking requirement.
+
+4. Add Terraform RBAC assignments so the SYSTEM-ASSIGNED MANAGED IDENTITY of:
+      azurerm_linux_function_app.function[0]
+   receives the storage data-plane permissions required for AzureWebJobsStorage.
+
+5. At minimum evaluate and add, where required:
+   - Storage Blob Data Contributor
+   - Storage Queue Data Contributor
+
+   Also determine from the current Azure Functions architecture whether:
+   - Storage Table Data Contributor
+   is actually required for this Function App/host configuration.
+
+   Do not add unnecessary permissions without explaining why they are required.
+
+6. The RBAC scope must be the existing shared storage account:
+      data.azurerm_storage_account.shared.id
+
+7. The principal must be the Function App's system-assigned identity:
+      azurerm_linux_function_app.function[0].identity[0].principal_id
+
+   IMPORTANT:
+   Do NOT assign these roles to the GitHub/Terraform deployment Managed Identity.
+   These permissions are for the runtime identity of sox-dev-function.
+
+8. Preserve the existing conditional deployment logic.
+   If the Function App uses:
+      count = local.file_processing_enabled ? 1 : 0
+   ensure the new role assignments follow compatible count logic and never reference function[0] when the Function App is disabled.
+
+9. Ensure Terraform dependency ordering is correct:
+   Function App/system-assigned identity must exist before its principal_id is used for RBAC.
+
+10. Do not hard-code:
+    - principal/object IDs
+    - storage account resource IDs
+    - subscription IDs
+    - resource group IDs
+
+11. Do not make unrelated changes to:
+    - private endpoints
+    - private DNS
+    - Event Grid
+    - Key Vault
+    - Function source code
+    - GitHub workflows
+    - existing storage account configuration.
+
+12. After implementing the change, run/review:
+    terraform fmt
+    terraform validate
+
+13. Show me BEFORE making final changes:
+    - root cause
+    - exact file(s) to modify
+    - exact Terraform resources you propose adding/changing
+    - why each storage role is required
+    - whether Table Data Contributor is required
+    - any dependency/count considerations.
+
+Then implement the minimal Terraform fix.
+
+Expected result after deployment:
+- sox-dev-function should no longer show Role assignments (0) for the shared storage account.
+- Function App should successfully authenticate to AzureWebJobsStorage using managed identity.
+- Azure Functions diagnostics should no longer report:
+  "Unable to access AzureWebJobsStorage / AuthorizationFailure"
+- Existing queue private endpoint configuration must remain unchanged.
