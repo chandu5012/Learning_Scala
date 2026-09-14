@@ -1,0 +1,201 @@
+Proceed with implementing the approved two-phase deployment design.
+
+You may now MODIFY FILES, but DO NOT run terraform apply, terraform untaint,
+terraform taint, terraform state commands, or deploy anything.
+
+Implement only the minimal required changes.
+
+1. Modify:
+   azure-infra/main.tf
+
+Remove:
+
+   zip_deploy_file = data.archive_file.function[0].output_path
+
+from:
+
+   azurerm_linux_function_app.function
+
+Remove the data "archive_file" "function" block ONLY if repository-wide search
+confirms there are no remaining references.
+
+Do not modify:
+- Function App identity configuration
+- storage_uses_managed_identity
+- AzureWebJobsStorage settings
+- Function App name
+- Service Plan
+- Storage Account
+- Key Vault configuration
+- Event Grid
+- Queue private endpoint
+- Private DNS
+- RBAC role definitions
+- RBAC principal_id references
+- providers
+- function source code
+
+2. Modify only the deployment workflow:
+
+   .github/workflows/azure-infra-deploy.yaml
+
+Preserve the existing:
+- workflow inputs
+- environment handling
+- Azure OIDC login
+- Terraform init
+- Terraform validate
+- Terraform plan
+- Terraform apply
+- existing variables/secrets
+- runner configuration
+
+3. Keep the existing Python dependency installation before packaging:
+
+   python3 -m pip install \
+     -r function/requirements.txt \
+     -t function
+
+4. Add the Function ZIP packaging after dependency installation:
+
+   cd function
+   rm -f sox-function.zip
+   zip -r sox-function.zip . \
+     -x "tests/*" \
+     -x "*.pyc" \
+     -x "__pycache__/*" \
+     -x "sox-function.zip"
+
+Confirm the ZIP root directly contains:
+
+   host.json
+   function_app.py
+   requirements.txt
+   shared/
+   ...
+
+There must NOT be an extra top-level function/ directory.
+
+5. Terraform infrastructure deployment MUST complete before application ZIP deployment.
+
+Required sequence:
+
+   terraform init
+   terraform validate
+   terraform plan
+   terraform apply
+
+then perform readiness checks.
+
+6. After terraform apply, discover the Function App name from the existing
+environment configuration. Do not hardcode DEV-only values if the workflow
+supports DEV/QA/STG/PROD.
+
+7. Add a bounded Function App state readiness check.
+
+Poll:
+
+   az functionapp show
+
+until:
+
+   state == Running
+
+Use a finite retry count and clear logging.
+
+Do not use an unconditional long sleep.
+
+8. Validate SCM DNS resolution:
+
+   <function-app-name>.scm.azurewebsites.net
+
+If DNS resolution fails, fail the workflow with a clear message.
+
+9. Validate SCM HTTPS network reachability from the ARC runner.
+
+HTTP 200, 401, or 403 proves network reachability.
+
+DNS failure, connection timeout, TLS connection failure, or unreachable host
+must fail the workflow before ZIP deployment.
+
+10. Do NOT claim that an `az storage ... --auth-mode login` command proves the
+Function App managed identity has Storage access.
+
+The GitHub workflow identity and Function App system-assigned identity are different.
+
+Terraform RBAC resources must continue to assign:
+
+   Storage Blob Data Contributor
+   Storage Queue Data Contributor
+   Storage Blob Delegator
+   Storage Table Data Contributor
+
+to:
+
+   azurerm_linux_function_app.function[0].identity[0].principal_id
+
+11. Deploy the package only after infrastructure and readiness checks succeed:
+
+   az functionapp deployment source config-zip
+
+using:
+
+   function/sox-function.zip
+
+Use the current resource group and dynamically derived Function App name.
+
+12. Add bounded retry/backoff around ZIP deployment because:
+- RBAC propagation can be asynchronous
+- Function host startup can take time
+- Kudu/SCM may briefly be unavailable
+
+Use clear attempt logging and fail after the maximum number of retries.
+
+13. Do not run terraform untaint automatically.
+
+The Function App is currently tainted.
+
+After making the code changes, run ONLY safe static/local checks:
+
+   terraform fmt -check
+   terraform validate
+
+if backend/provider initialization is already available.
+
+Also perform repository search to confirm there are no remaining references to:
+
+   data.archive_file.function
+   zip_deploy_file
+
+14. Generate a fresh terraform plan if it can be done safely without changing state.
+
+The required result before any apply is:
+
+   0 to destroy
+
+and specifically:
+
+   azurerm_linux_function_app.function[0]
+
+must NOT show:
+   destroy
+   replace
+   -/+
+   must be replaced
+
+If it still shows replacement because of the existing taint, STOP.
+
+Do not untaint it yourself.
+
+15. At the end, return exactly:
+
+A. Files modified
+B. Exact changes made
+C. Repository references removed
+D. Validation results
+E. Terraform plan summary
+F. Whether Function App is still tainted
+G. Whether the next plan is safe
+H. Any remaining blocker before deployment
+
+Do not apply or deploy anything.
