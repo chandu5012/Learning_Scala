@@ -1,0 +1,93 @@
+The proposed two-phase solution looks reasonable, but DO NOT modify any files yet.
+
+Before implementing it, perform one final validation of the proposed design against the CURRENT repository and networking configuration.
+
+I want to make sure we do not fix the RBAC sequencing problem and then fail at the separate ZIP deployment step because of Function App/Kudu/private networking.
+
+Please validate all of the following:
+
+1. Confirm the GitHub Actions runner used by azure-infra-deploy.yaml:
+   arc-k8s-standard-azure
+
+2. Determine whether this runner can reach the Function App deployment/SCM endpoint for:
+   sox-dev-function
+
+3. Inspect the Function App networking configuration and determine:
+   - whether public network access is enabled/disabled
+   - whether the Function App has a private endpoint
+   - whether the SCM/Kudu endpoint is reachable from the runner
+   - whether private DNS exists for the Function App/SCM endpoint
+   - whether any VNet integration/private endpoint configuration affects ZIP deployment
+
+4. Check whether this command is actually appropriate in our environment:
+
+   az functionapp deployment source config-zip
+
+   Do not assume it works just because it is a valid Azure CLI command.
+
+5. Determine exactly which endpoint that command will use and whether our runner has network connectivity to it.
+
+6. Check the current GitHub workflow authentication and confirm the existing Azure login identity can execute the ZIP deployment after Terraform apply.
+
+7. Confirm that removing:
+
+   zip_deploy_file = data.archive_file.function[0].output_path
+
+   will NOT cause Terraform to:
+   - destroy/recreate the Function App
+   - remove the Function source unexpectedly
+   - continuously detect unwanted drift on future plans
+
+8. Confirm whether removing the archive_file data source is safe, or whether any other Terraform resource/output references it.
+
+9. Validate the proposed ZIP packaging command carefully.
+
+The function dependencies are currently installed into the function directory. Confirm that:
+
+   cd function
+   zip -r sox-function.zip .
+
+produces the correct Azure Functions ZIP structure.
+
+The ZIP root must contain the actual Function App files and must NOT accidentally contain an extra top-level "function/" directory.
+
+10. Do NOT use a blind fixed sleep as the primary readiness mechanism.
+
+Design a readiness check before ZIP deployment that verifies the Function App is actually ready for deployment.
+
+If RBAC propagation requires retries, use bounded retry/backoff with clear logging.
+
+11. Determine whether AzureWebJobsStorage access can be validated before attempting ZIP deployment.
+
+12. Check whether the Function App currently being TAINTED changes any of the above.
+
+IMPORTANT:
+Do not run terraform untaint.
+Do not run terraform apply.
+Do not modify Terraform state.
+Do not edit any files.
+Do not deploy anything.
+
+Return only:
+
+A. Is the proposed two-phase design safe? YES/NO and why.
+
+B. Can arc-k8s-standard-azure reach the required Function/SCM deployment endpoint?
+
+C. Is `az functionapp deployment source config-zip` appropriate for this exact networking setup?
+
+D. Is the proposed ZIP structure correct?
+
+E. Can archive_file be safely removed?
+
+F. What readiness/RBAC check should replace the blind sleep/retry approach?
+
+G. Will removing zip_deploy_file cause any Function App replacement or future Terraform drift?
+
+H. Exact final files that would need modification.
+
+I. Exact final proposed diff.
+
+J. Final expected deployment sequence.
+
+Do not make any changes until I explicitly approve the final diff.
