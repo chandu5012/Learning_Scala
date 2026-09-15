@@ -1,0 +1,40 @@
+We have confirmed:
+- Storage private endpoint/DNS/TLS works.
+- GitHub OIDC can list containers.
+- GitHub OIDC can upload and delete blobs successfully.
+- Storage account currently contains only:
+  $logs
+  sox
+  tfstate
+- scm_releases does not exist.
+- Azure/functions-action@v1 fails at PublishContent with:
+  "This request is not authorized to perform this operation."
+
+Add ONE temporary diagnostic before "Publish Function package".
+
+Using the existing Azure OIDC login, test whether the identity can create and delete a temporary blob container:
+
+az storage container create \
+  --account-name vtxcusvdpdataplatfe1a54 \
+  --name github-actions-container-test \
+  --auth-mode login
+
+If successful, print:
+CONTAINER CREATE SUCCEEDED
+
+Then delete ONLY that temporary container:
+
+az storage container delete \
+  --account-name vtxcusvdpdataplatfe1a54 \
+  --name github-actions-container-test \
+  --auth-mode login
+
+Do not:
+- create scm_releases manually
+- change RBAC
+- change Terraform
+- change networking
+- change Function App settings
+- change the existing Azure/functions-action step
+
+Show the diff only before any other modification.
