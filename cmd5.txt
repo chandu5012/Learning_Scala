@@ -1,0 +1,57 @@
+I need to diagnose the current Azure Function deployment failure. Do NOT redesign the workflow, change Terraform resources, change RBAC, modify Azure infrastructure, or remove any existing deployment steps.
+
+Current situation:
+- Function App: sox-dev-function
+- Storage account: vtxcusvdpdataplatfe1a54
+- Storage public network access is DISABLED.
+- Blob private endpoint exists and is Approved.
+- Blob private endpoint IP: 10.253.200.10
+- Private DNS zone: privatelink.blob.core.windows.net
+- DNS A record exists:
+  vtxcusvdpdataplatfe1a54 -> 10.253.200.10
+- Function App managed identity already has:
+  - Storage Blob Data Contributor
+  - Storage Blob Delegator
+  - Storage Queue Data Contributor
+  - Storage Table Data Contributor
+- Current deployment reaches Azure/functions-action@v1 and fails during PublishContent with:
+  "This request is not authorized to perform this operation."
+- GitHub workflow runs on our existing Azure/ARC runner.
+
+Task:
+Add ONLY a temporary diagnostic step immediately BEFORE the existing "Publish Function package" / Azure/functions-action@v1 step.
+
+The diagnostic must run on the SAME runner/job as the deployment and execute:
+
+1. DNS lookup:
+   nslookup vtxcusvdpdataplatfe1a54.blob.core.windows.net
+
+2. HTTPS connectivity test:
+   curl -vk --connect-timeout 10 \
+     https://vtxcusvdpdataplatfe1a54.blob.core.windows.net/ \
+     -o /dev/null
+
+Important:
+- The diagnostic step must NOT fail the workflow solely because curl receives HTTP 400/401/403. We mainly need to know whether DNS resolution and TCP/TLS connectivity work.
+- Clearly print the resolved IP.
+- Expected private IP is 10.253.200.10.
+- Clearly indicate whether DNS resolves to the expected private IP.
+- Capture enough curl output to determine whether connection to port 443 and TLS negotiation succeeded.
+- Do NOT print secrets, tokens, credentials, or environment-variable values.
+- Do NOT change Azure RBAC.
+- Do NOT enable public network access.
+- Do NOT create/change private endpoints or DNS records.
+- Do NOT change Terraform.
+- Do NOT change the existing Function deployment implementation.
+- Do NOT commit or push anything yet.
+
+First inspect the existing deploy workflow and identify the exact workflow file and the "Publish Function package" step.
+
+Then make only this diagnostic change locally and show me:
+1. workflow file changed,
+2. exact YAML added,
+3. where it was inserted,
+4. git diff,
+5. confirmation that no other files were modified.
+
+Stop after that and wait for my approval.
