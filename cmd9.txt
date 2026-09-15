@@ -1,0 +1,9 @@
+- name: Diagnostic Function App deployment settings
+  if: ${{ inputs.enable_file_processing == 'YES' }}
+  shell: bash
+  run: |
+    az functionapp config appsettings list \
+      --name sox-dev-function \
+      --resource-group cpe-centralus-corptoolsdev01-a-vdp-dataplatform-gov-service-development-rg \
+      --query "[?name=='AzureWebJobsStorage__accountName' || name=='WEBSITE_RUN_FROM_PACKAGE' || name=='WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID'].{name:name,value:value}" \
+      -o table
