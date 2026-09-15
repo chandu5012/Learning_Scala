@@ -1,0 +1,522 @@
+Implement the final Azure Function deployment fix in this repository.
+
+CONTEXT
+-------
+Function App:
+  sox-dev-function
+
+Resource Group:
+  cpe-centralus-corptoolsdev01-a-vdp-dataplatform-gov-service-development-rg
+
+Storage Account:
+  vtxcusvdpdataplatfe1a54
+
+Function package:
+  ${GITHUB_WORKSPACE}/azure-infra/function/sox-function.zip
+
+Current platform:
+  Linux Consumption Function App
+  Python
+  GitHub Actions uses Azure OIDC authentication
+
+Current failing deployment:
+  Azure/functions-action@v1
+
+Failure:
+  Execution Exception (state: PublishContent)
+  This request is not authorized to perform this operation.
+
+The following have already been VERIFIED successfully. Do NOT troubleshoot
+or modify them:
+
+1. Storage private endpoint is working.
+2. Blob DNS resolves to private IP 10.253.200.10.
+3. HTTPS/TLS connectivity from the GitHub runner works.
+4. Existing GitHub Azure OIDC login works.
+5. OIDC identity can list storage containers.
+6. OIDC identity can upload blobs.
+7. OIDC identity can delete blobs.
+8. OIDC identity can create containers.
+9. OIDC identity can delete containers.
+10. Function App system-assigned managed identity is enabled.
+11. Function App managed identity already has:
+    - Storage Blob Data Contributor
+    - Storage Blob Delegator
+    - Storage Queue Data Contributor
+    - Storage Table Data Contributor
+12. AzureWebJobsStorage__accountName is:
+    vtxcusvdpdataplatfe1a54
+13. WEBSITE_RUN_FROM_PACKAGE is currently not configured.
+14. WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID is currently not configured.
+
+We are NOT going to continue troubleshooting Azure/functions-action@v1
+PublishContent.
+
+Implement a run-from-package deployment using Blob Storage.
+
+
+============================================================
+1. TERRAFORM - CREATE FUNCTION PACKAGE CONTAINER
+============================================================
+
+In azure-infra/main.tf, add a private storage container dedicated to
+Function deployment packages.
+
+Use the existing storage account data/resource reference already used by
+this repository.
+
+Preferred Terraform:
+
+resource "azurerm_storage_container" "function_packages" {
+  count                 = local.file_processing_enabled ? 1 : 0
+  name                  = "function-packages"
+  storage_account_id    = data.azurerm_storage_account.shared.id
+  container_access_type = "private"
+}
+
+IMPORTANT:
+- Adapt the storage account reference to the exact existing resource/data
+  source in this repository.
+- Do NOT create another storage account.
+- Do NOT create another private endpoint.
+- Do NOT modify existing Blob/Queue/Table private endpoints.
+- Do NOT create Storage Blob Data Owner.
+- Keep existing Function managed identity RBAC.
+- Do not duplicate an existing container resource if one already exists.
+
+
+============================================================
+2. KEEP FUNCTION MANAGED IDENTITY
+============================================================
+
+The Function App must continue using its existing system-assigned managed
+identity.
+
+Do NOT convert it to user-assigned identity.
+
+Do NOT add:
+
+WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID
+
+because the system-assigned identity will be used.
+
+
+============================================================
+3. KEEP EXISTING STORAGE RBAC
+============================================================
+
+Keep the existing Function App managed identity storage roles.
+
+In particular retain:
+
+Storage Blob Data Contributor
+
+Do NOT add:
+
+Storage Blob Data Owner
+
+Do NOT change the working storage RBAC unless Terraform currently contains
+a duplicate or obsolete role introduced during troubleshooting.
+
+
+============================================================
+4. REMOVE FAILED FUNCTIONS-ACTION DEPLOYMENT
+============================================================
+
+In:
+
+.github/workflows/azure-infra-deploy.yaml
+
+find the current step similar to:
+
+- name: Publish Function package
+  uses: Azure/functions-action@v1
+
+Remove/replace this deployment step.
+
+Do NOT use Azure/functions-action@v1 for package publication anymore.
+
+
+============================================================
+5. REMOVE TEMPORARY DIAGNOSTICS
+============================================================
+
+Remove the temporary troubleshooting steps added during investigation,
+including steps named similar to:
+
+Diagnostic: Blob private endpoint DNS/TLS
+
+Diagnostic Blob auth container list
+
+Diagnostic Blob write permission
+
+Diagnostic container create delete
+
+Diagnostic Function App deployment settings
+
+These are no longer required.
+
+Do NOT remove legitimate production validation steps unrelated to this
+incident.
+
+
+============================================================
+6. ADD NEW RUN-FROM-PACKAGE DEPLOYMENT
+============================================================
+
+Add a new deployment step after Terraform infrastructure deployment and
+after the Function ZIP package has been created.
+
+Use:
+
+- name: Deploy Function package
+  if: ${{ inputs.enable_file_processing == 'YES' }}
+  shell: bash
+  run: |
+    set -euo pipefail
+
+    STORAGE_ACCOUNT="vtxcusvdpdataplatfe1a54"
+    CONTAINER="function-packages"
+    FUNCTION_APP="sox-dev-function"
+    RESOURCE_GROUP="cpe-centralus-corptoolsdev01-a-vdp-dataplatform-gov-service-development-rg"
+    PACKAGE="${GITHUB_WORKSPACE}/azure-infra/function/sox-function.zip"
+    BLOB_NAME="sox-function-${GITHUB_SHA}.zip"
+
+    echo "Validating Function package..."
+
+    if [ ! -f "$PACKAGE" ]; then
+      echo "ERROR: Function package not found: $PACKAGE"
+      exit 1
+    fi
+
+    echo "Uploading Function package..."
+
+    az storage blob upload \
+      --account-name "$STORAGE_ACCOUNT" \
+      --container-name "$CONTAINER" \
+      --name "$BLOB_NAME" \
+      --file "$PACKAGE" \
+      --auth-mode login \
+      --overwrite \
+      --output none
+
+    PACKAGE_URL="https://${STORAGE_ACCOUNT}.blob.core.windows.net/${CONTAINER}/${BLOB_NAME}"
+
+    echo "Configuring WEBSITE_RUN_FROM_PACKAGE..."
+
+    az functionapp config appsettings set \
+      --name "$FUNCTION_APP" \
+      --resource-group "$RESOURCE_GROUP" \
+      --settings "WEBSITE_RUN_FROM_PACKAGE=${PACKAGE_URL}" \
+      --output none
+
+    echo "Restarting Function App..."
+
+    az functionapp restart \
+      --name "$FUNCTION_APP" \
+      --resource-group "$RESOURCE_GROUP"
+
+    echo "Synchronizing Function triggers..."
+
+    az rest \
+      --method post \
+      --url "https://management.azure.com/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Web/sites/${FUNCTION_APP}/syncfunctiontriggers?api-version=2022-03-01"
+
+    echo "Function package deployment completed successfully."
+
+
+============================================================
+7. DO NOT CREATE THE CONTAINER IN THE WORKFLOW
+============================================================
+
+The function-packages container must be provisioned by Terraform.
+
+Therefore do NOT add:
+
+az storage container create
+
+to the final production workflow.
+
+Terraform should create:
+
+function-packages
+
+before the package upload occurs.
+
+
+============================================================
+8. HANDLE TERRAFORM/APPLICATION ORDERING
+============================================================
+
+Verify the workflow order is:
+
+Azure OIDC login
+        |
+        v
+Terraform init/plan/apply
+        |
+        v
+Function App + storage infrastructure ready
+        |
+        v
+function-packages container exists
+        |
+        v
+Build/create sox-function.zip
+        |
+        v
+Upload ZIP to function-packages
+        |
+        v
+Set WEBSITE_RUN_FROM_PACKAGE
+        |
+        v
+Restart Function App
+        |
+        v
+Sync Function triggers
+        |
+        v
+Deployment verification
+
+Do not upload the package before Terraform has successfully created the
+container.
+
+
+============================================================
+9. DO NOT PUT WEBSITE_RUN_FROM_PACKAGE IN TERRAFORM
+============================================================
+
+Do NOT hard-code:
+
+WEBSITE_RUN_FROM_PACKAGE
+
+inside the Function App Terraform app_settings.
+
+Reason:
+
+Each deployment creates a package named:
+
+sox-function-${GITHUB_SHA}.zip
+
+Therefore the GitHub workflow owns and updates WEBSITE_RUN_FROM_PACKAGE.
+
+Terraform must not overwrite it on subsequent deployments.
+
+If the Function App Terraform resource manages app_settings as a complete
+map, modify it carefully so Terraform does NOT continuously remove or reset
+the workflow-managed WEBSITE_RUN_FROM_PACKAGE value.
+
+Use the repository's existing lifecycle/merge pattern if one exists.
+
+If required, use an appropriate lifecycle ignore strategy ONLY for the
+workflow-managed setting rather than ignoring unrelated Function App
+configuration.
+
+Do not introduce broad ignore_changes without explaining why.
+
+
+============================================================
+10. KEEP PRIVATE STORAGE DESIGN
+============================================================
+
+The storage account public network access must remain disabled.
+
+Do NOT enable public network access.
+
+Do NOT add GitHub public IP addresses.
+
+Do NOT remove the existing Blob private endpoint.
+
+Do NOT change:
+
+privatelink.blob.core.windows.net
+
+The runner has already successfully reached:
+
+vtxcusvdpdataplatfe1a54.blob.core.windows.net
+        ->
+10.253.200.10
+
+Therefore networking is already correct.
+
+
+============================================================
+11. PACKAGE RETENTION
+============================================================
+
+Do NOT delete the newly uploaded package immediately after deployment.
+
+The Function App runs from that Blob package URL.
+
+The active package must remain available.
+
+Do not add cleanup that could delete the package currently referenced by:
+
+WEBSITE_RUN_FROM_PACKAGE
+
+If package retention cleanup is desired, leave it as a separate future
+enhancement.
+
+Do NOT implement package cleanup in this change.
+
+
+============================================================
+12. SECURITY
+============================================================
+
+Continue using Azure OIDC.
+
+Do NOT introduce:
+
+storage account keys
+connection strings
+SAS tokens
+client secrets
+GitHub Azure passwords
+
+Package upload must continue using:
+
+--auth-mode login
+
+Do not print Azure tokens or credentials in logs.
+
+
+============================================================
+13. VALIDATION AFTER DEPLOYMENT
+============================================================
+
+After setting WEBSITE_RUN_FROM_PACKAGE, add a small validation.
+
+Read the setting back:
+
+az functionapp config appsettings list \
+  --name "$FUNCTION_APP" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query "[?name=='WEBSITE_RUN_FROM_PACKAGE'].value | [0]" \
+  -o tsv
+
+Validate that it contains:
+
+https://vtxcusvdpdataplatfe1a54.blob.core.windows.net/function-packages/
+
+Do NOT print secrets.
+
+WEBSITE_RUN_FROM_PACKAGE in this implementation contains only the private
+Blob package URL and no SAS token.
+
+
+============================================================
+14. FAILURE HANDLING
+============================================================
+
+Do not use:
+
+|| true
+
+for production deployment commands.
+
+The workflow must fail if:
+
+- ZIP does not exist
+- Blob upload fails
+- WEBSITE_RUN_FROM_PACKAGE update fails
+- Function restart fails
+- trigger synchronization fails
+
+Temporary diagnostics previously used `|| true`; remove those diagnostics.
+
+
+============================================================
+15. ENVIRONMENT DESIGN
+============================================================
+
+Do not unnecessarily hard-code DEV-specific values if this workflow already
+supports dev/qa/stg/prd through tfvars, GitHub environment variables,
+Terraform outputs, or existing shell variables.
+
+Where existing variables already provide:
+
+storage account name
+resource group
+function app name
+environment
+
+reuse those variables.
+
+The literal DEV values above describe the current working environment.
+
+Prefer existing repository configuration over introducing duplicate
+configuration.
+
+
+============================================================
+16. DO NOT MODIFY UNRELATED INFRASTRUCTURE
+============================================================
+
+Do NOT modify:
+
+Snowflake
+SQS
+Lambda
+PostgreSQL
+Key Vault
+unrelated RBAC
+unrelated Terraform
+unrelated GitHub workflows
+SOX tagging logic
+network foundation
+private DNS zones
+existing storage containers
+tfstate configuration
+
+Keep the change narrowly scoped to Azure Function package deployment.
+
+
+============================================================
+17. FINAL REVIEW
+============================================================
+
+Before applying changes:
+
+1. Inspect the existing Terraform structure.
+2. Inspect existing local.file_processing_enabled logic.
+3. Inspect the existing storage account reference.
+4. Inspect existing Function managed identity role assignments.
+5. Inspect azure-infra-deploy.yaml.
+6. Determine where sox-function.zip is created.
+7. Preserve existing naming/environment patterns.
+8. Avoid duplicate Terraform resources.
+
+Then implement the minimum required changes.
+
+
+============================================================
+18. OUTPUT REQUIRED
+============================================================
+
+After implementation, provide:
+
+1. Exact files changed.
+2. Short explanation of each change.
+3. Terraform diff.
+4. GitHub Actions workflow diff.
+5. Any existing code removed.
+6. Confirmation that Azure/functions-action@v1 is no longer used for
+   Function package publication.
+7. Confirmation that temporary diagnostics were removed.
+8. Confirmation that public storage access remains disabled.
+9. Confirmation that no secrets/SAS/storage keys were introduced.
+10. Confirmation that the active package will remain in Blob storage.
+11. Any remaining prerequisite that would prevent deployment.
+
+Do not make unrelated refactoring.
+
+Goal:
+
+Terraform provisions infrastructure.
+GitHub OIDC uploads the immutable Function ZIP to private Blob storage.
+WEBSITE_RUN_FROM_PACKAGE points to that Blob URL.
+The Function App system-assigned managed identity reads the package.
+The Function App is restarted and triggers are synchronized.
+The deployment completes without Azure/functions-action@v1 PublishContent.
