@@ -1,0 +1,15 @@
+Add one temporary diagnostic step immediately before "Publish Function package".
+
+Run:
+
+az storage container list \
+  --account-name vtxcusvdpdataplatfe1a54 \
+  --auth-mode login \
+  --output table
+
+Use the existing Azure OIDC login from the same deploy job.
+
+Do not change Terraform, RBAC, networking, Function App configuration, or any existing deployment logic.
+Do not remove the existing DNS/TLS diagnostic.
+Only add this Blob authentication test.
+Show the exact diff before making any other changes.
