@@ -1,0 +1,47 @@
+Add one temporary diagnostic step immediately before "Publish Function package".
+
+Purpose:
+We have already confirmed:
+- DNS resolves the storage account to private IP 10.253.200.10
+- HTTPS/TLS connectivity works
+- `az storage container list --auth-mode login` succeeds using the existing GitHub OIDC identity
+- Azure/functions-action@v1 still fails during PublishContent with:
+  "This request is not authorized to perform this operation."
+
+Now test actual Blob WRITE permission using the SAME existing Azure OIDC login.
+
+The diagnostic should:
+
+1. Create a harmless temporary local file:
+   echo "github-actions-blob-write-test" > /tmp/blob-write-test.txt
+
+2. Upload it to the existing `sox` container:
+
+   az storage blob upload \
+     --account-name vtxcusvdpdataplatfe1a54 \
+     --container-name sox \
+     --name github-actions-diagnostic/blob-write-test.txt \
+     --file /tmp/blob-write-test.txt \
+     --auth-mode login \
+     --overwrite
+
+3. If upload succeeds, print:
+   "BLOB WRITE TEST SUCCEEDED"
+
+4. Delete ONLY that diagnostic blob afterward:
+
+   az storage blob delete \
+     --account-name vtxcusvdpdataplatfe1a54 \
+     --container-name sox \
+     --name github-actions-diagnostic/blob-write-test.txt \
+     --auth-mode login
+
+Important:
+- Do not modify Terraform.
+- Do not change RBAC.
+- Do not change networking/private endpoints/DNS.
+- Do not change Function App configuration.
+- Do not change the existing Publish Function package step.
+- Do not expose credentials or tokens.
+- Only add this temporary diagnostic.
+- Show the diff before making any other changes.
