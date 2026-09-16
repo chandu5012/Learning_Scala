@@ -1,0 +1,223 @@
+Review the complete existing Azure Function Terraform implementation and GitHub Actions deployment workflow before making any changes.
+
+Current problem:
+The Azure Function `sox-dev-function` is currently deployed using Linux Consumption Y1.
+
+The Function package itself is valid:
+- host.json is at ZIP root
+- function_app.py is at ZIP root
+- requirements.txt is at ZIP root
+- Python syntax validation succeeds
+- package upload succeeds
+- Function App ARM state shows Running
+
+However, the Function host fails to initialize and `syncfunctiontriggers` returns:
+"Encountered an error (ServiceUnavailable) from host runtime."
+
+Root cause already identified:
+The Azure Storage account used by the Function has public network access disabled and is accessed through private endpoints.
+The current Y1 Function does not have VNet integration, so the Function runtime cannot reach the private Azure Storage endpoints.
+
+The Azure platform/network team has now confirmed that existing App Service networks/subnets are dedicated for `Microsoft.Web/serverFarms`.
+
+They also confirmed:
+"you just can't use basic or shared, the other SKUs should all work"
+
+For DEVELOPMENT, use the existing App Service VNet/subnet. Do NOT create a new VNet or subnet.
+
+Confirmed development network:
+
+Subscription:
+PDD CrossNet Development
+
+Subscription ID:
+be54cf53-5579-48b9-83eb-60ced48deccb
+
+Region:
+Central US
+
+VNet:
+pdd-crossnet-dev-appservice-vnet-central-us
+
+Use the existing delegated App Service subnet:
+pdd-crossnet-dev-appservice-vnet-central-us-delegated-app-service-subnet-0
+
+IMPORTANT:
+Before changing Terraform, query/inspect the existing subnet and confirm:
+1. The exact subnet resource ID.
+2. Delegation is compatible with Microsoft.Web/serverFarms.
+3. The subnet is intended for App Service/Function VNet integration.
+4. Existing private DNS/network routing allows this VNet to resolve and reach the Storage private endpoints.
+
+Do NOT use:
+- private-link subnet
+- PostgreSQL delegated subnet
+- app-gateway subnet
+- VMS subnet
+- any unrelated subnet
+
+IMPLEMENTATION REQUIREMENTS
+
+1. Review first
+Inspect:
+- main.tf
+- variables.tf
+- outputs.tf
+- providers.tf
+- all dev/qa/stg/prd tfvars
+- GitHub Actions Azure deployment workflow
+- Function source/package creation
+- Storage resources
+- Storage private endpoints
+- private DNS configuration
+- RBAC assignments
+- Key Vault
+- Event Grid/Queue resources
+- current Terraform state/resource references
+
+Do not blindly modify the repository.
+
+2. Hosting plan
+The current Y1 design cannot satisfy the required private Storage connectivity.
+
+Determine the best supported Azure Function hosting configuration for this repository that:
+- supports VNet integration
+- supports Python 3.12
+- supports managed identity
+- can access the existing private Storage endpoints
+- is supported by the currently locked azurerm provider version
+- follows the existing organizational App Service networking standard
+
+Flex Consumption FC1 may be used if it satisfies all of the above.
+
+Do NOT use Basic or Shared SKUs.
+
+Do not assume FC1 is mandatory purely because it was previously discussed. Verify the provider/resource capabilities first and select the appropriate supported architecture.
+
+3. VNet integration
+Connect the Function outbound traffic to:
+
+VNet:
+pdd-crossnet-dev-appservice-vnet-central-us
+
+Subnet:
+pdd-crossnet-dev-appservice-vnet-central-us-delegated-app-service-subnet-0
+
+Use the exact existing subnet resource ID.
+
+Do NOT create duplicate:
+- VNet
+- subnet
+- private DNS zone
+- private DNS VNet link
+- Storage private endpoint
+
+4. Storage
+Keep the existing Storage account and its private architecture.
+
+Do NOT:
+- enable public network access on Storage
+- expose Storage publicly
+- create a new Storage account merely to work around networking
+- remove existing private endpoints
+
+The Function must reach Storage through the approved VNet/private endpoint architecture.
+
+Preserve managed-identity authentication wherever currently configured.
+
+5. Terraform resource migration
+If moving from:
+
+azurerm_linux_function_app
+
+to:
+
+azurerm_function_app_flex_consumption
+
+or another Function resource type, explicitly identify the replacement impact.
+
+Do NOT run terraform apply automatically if the plan destroys/recreates the existing Function unexpectedly.
+
+Update all dependent references including:
+- managed identity principal_id
+- Storage RBAC
+- Queue RBAC
+- Table RBAC
+- Key Vault role assignment
+- Event Grid resources
+- outputs
+- app settings
+
+6. Deployment workflow
+Review the current GitHub Actions workflow.
+
+If the selected Function resource supports Terraform-managed ZIP deployment, simplify the workflow accordingly.
+
+Do not continue using unnecessary manual:
+- blob package upload
+- WEBSITE_RUN_FROM_PACKAGE manipulation
+- Function restart
+- repeated syncfunctiontriggers calls
+
+unless they are genuinely required by the selected Azure Function hosting model.
+
+Keep package validation before deployment.
+
+7. Environment isolation
+Implement DEV first.
+
+Do NOT modify QA/STG/PRD network IDs using guessed values.
+
+Make the subnet/VNet configuration environment-driven so QA/STG/PRD can receive their own confirmed subnet IDs later.
+
+8. Validation
+Before applying anything, run:
+
+terraform fmt -check
+terraform validate
+terraform plan
+
+Show me the plan summary.
+
+Explicitly identify:
+- resources created
+- resources modified
+- resources destroyed/replaced
+- whether `sox-dev-function` will be recreated
+- whether the existing Storage account changes
+- whether any private endpoints change
+- whether any DNS resources change
+- whether any Key Vault resources change
+
+STOP before terraform apply if there is any unexpected destruction.
+
+9. After deployment
+Validate:
+- Function App starts successfully
+- runtime version no longer shows Error
+- Function host becomes healthy
+- functions/triggers are discovered
+- Storage private endpoint DNS resolves from Function networking
+- Function can access Blob/Queue/Table as required
+- managed identity authentication succeeds
+- no public Storage access was enabled
+
+10. Scope control
+Only change files/resources necessary to solve the Azure Function private Storage connectivity issue.
+
+Do NOT refactor unrelated Terraform.
+Do NOT modify Snowflake infrastructure.
+Do NOT modify unrelated Azure resources.
+Do NOT create speculative networking resources.
+Do NOT change SOX application business logic.
+
+First give me:
+1. confirmed root cause,
+2. selected hosting architecture and why,
+3. exact existing subnet ID being used,
+4. files that need modification,
+5. expected Terraform replacement impact.
+
+Then make the code changes.
+
+Finally run validation and terraform plan, but DO NOT apply until I review the plan.
