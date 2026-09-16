@@ -1,0 +1,340 @@
+We need to fix the Azure Function deployment in the NEXT attempt.
+
+Current confirmed state from latest GitHub Actions run:
+
+1. ZIP validation is now fixed.
+2. host.json validation passes.
+3. function_app.py validation passes.
+4. Package uploads successfully to:
+   storage account: vtxcusvdpdataplatfe1a54
+   container: function-packages
+5. Function App:
+   sox-dev-function
+6. Function App ARM state is Running.
+7. FUNCTIONS_WORKER_RUNTIME = python
+8. FUNCTIONS_EXTENSION_VERSION = ~4
+9. WEBSITE_RUN_FROM_PACKAGE is successfully set to the uploaded blob URL.
+10. Storage RBAC/network/DNS tests already succeeded in previous diagnostics.
+11. Failure now occurs ONLY at:
+    Microsoft.Web/sites/syncfunctiontriggers
+
+Error:
+Encountered an error (ServiceUnavailable) from host runtime.
+
+DO NOT:
+- change Storage RBAC
+- add more Blob roles
+- change private endpoints
+- change DNS
+- change OIDC
+- change Terraform permissions
+- return to Azure/functions-action@v1
+- add random retry logic
+- recreate the Function App
+
+Make these targeted changes.
+
+--------------------------------------------------
+CHANGE 1 - System assigned identity configuration
+--------------------------------------------------
+
+We are using the Function App SYSTEM-ASSIGNED managed identity.
+
+Microsoft documentation says:
+
+WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID=SystemAssigned
+
+is equivalent to omitting the setting.
+
+Therefore remove this explicit setting:
+
+WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID=SystemAssigned
+
+Do NOT replace it with a principal ID, object ID, client ID or resource ID.
+
+Keep only:
+
+WEBSITE_RUN_FROM_PACKAGE=<blob URL>
+
+The Function App system-assigned identity should automatically be used.
+
+--------------------------------------------------
+CHANGE 2 - Verify package can be read by FUNCTION identity
+--------------------------------------------------
+
+The GitHub OIDC blob-write test only proves that GitHub can access Storage.
+
+We must separately prove that the Function App managed identity has
+Storage Blob Data Reader or higher on the storage account/container.
+
+Do NOT attempt to create RBAC in this workflow.
+
+Add a diagnostic command that prints:
+
+Function App principal ID
+Storage account name
+WEBSITE_RUN_FROM_PACKAGE URL
+
+Use:
+
+az functionapp identity show \
+  --name "$FUNCTION_APP" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query principalId \
+  -o tsv
+
+Then list role assignments for that principal at the storage account scope.
+
+Do not modify RBAC.
+
+--------------------------------------------------
+CHANGE 3 - Verify host.json
+--------------------------------------------------
+
+After ZIP_FILES is created, print host.json:
+
+unzip -p "$PACKAGE" host.json
+
+Validate that host.json is valid JSON:
+
+python - <<'PY'
+import json, zipfile, os
+
+package = os.environ["PACKAGE"]
+
+with zipfile.ZipFile(package) as z:
+    data = z.read("host.json")
+    print(data.decode())
+    json.loads(data)
+
+print("host.json JSON validation succeeded")
+PY
+
+Export PACKAGE before running Python:
+
+export PACKAGE
+
+--------------------------------------------------
+CHANGE 4 - Validate Python source syntax
+--------------------------------------------------
+
+Before upload, extract function_app.py temporarily and compile it.
+
+TMP_DIR="$(mktemp -d)"
+unzip -q "$PACKAGE" -d "$TMP_DIR"
+
+python -m py_compile "$TMP_DIR/function_app.py"
+
+echo "function_app.py syntax validation succeeded."
+
+Do not start the function locally.
+
+--------------------------------------------------
+CHANGE 5 - Validate dependencies
+--------------------------------------------------
+
+The ZIP already contains Python dependencies.
+
+Check that the package has the Azure Functions Python dependency:
+
+python - <<'PY'
+import zipfile, os
+
+package = os.environ["PACKAGE"]
+
+with zipfile.ZipFile(package) as z:
+    names = z.namelist()
+
+matches = [
+    n for n in names
+    if n == "azure/functions/__init__.py"
+    or n.endswith("/azure/functions/__init__.py")
+]
+
+print("Azure Functions package matches:", matches)
+
+if not matches:
+    raise SystemExit(
+        "ERROR: azure-functions dependency is missing from deployment ZIP"
+    )
+PY
+
+--------------------------------------------------
+CHANGE 6 - Configure Run From Package
+--------------------------------------------------
+
+Set ONLY:
+
+az functionapp config appsettings set \
+  --name "$FUNCTION_APP" \
+  --resource-group "$RESOURCE_GROUP" \
+  --settings \
+  "WEBSITE_RUN_FROM_PACKAGE=${PACKAGE_URL}" \
+  --output none
+
+Remove any existing explicit:
+
+WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID
+
+using:
+
+az functionapp config appsettings delete \
+  --name "$FUNCTION_APP" \
+  --resource-group "$RESOURCE_GROUP" \
+  --setting-names WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID \
+  --output none || true
+
+Do NOT remove:
+AzureWebJobsStorage__accountName
+FUNCTIONS_WORKER_RUNTIME
+FUNCTIONS_EXTENSION_VERSION
+
+--------------------------------------------------
+CHANGE 7 - Restart
+--------------------------------------------------
+
+Restart once:
+
+az functionapp restart \
+  --name "$FUNCTION_APP" \
+  --resource-group "$RESOURCE_GROUP"
+
+Wait 20 seconds before trigger synchronization.
+
+sleep 20
+
+--------------------------------------------------
+CHANGE 8 - Test host before syncfunctiontriggers
+--------------------------------------------------
+
+Before calling syncfunctiontriggers, query:
+
+az functionapp show \
+  --name "$FUNCTION_APP" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query "{state:state,defaultHostName:defaultHostName}" \
+  -o json
+
+Then print the important settings:
+
+az functionapp config appsettings list \
+  --name "$FUNCTION_APP" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query "[?name=='FUNCTIONS_WORKER_RUNTIME' || name=='FUNCTIONS_EXTENSION_VERSION' || name=='WEBSITE_RUN_FROM_PACKAGE' || name=='AzureWebJobsStorage__accountName'].{name:name,value:value}" \
+  -o table
+
+--------------------------------------------------
+CHANGE 9 - Sync triggers
+--------------------------------------------------
+
+Then call syncfunctiontriggers.
+
+Use retries because external-package deployment requires manual trigger sync.
+
+Use 12 attempts with 10-second intervals.
+
+SYNC_SUCCESS=false
+
+for attempt in {1..12}; do
+
+    echo "Synchronizing Function triggers - attempt ${attempt}/12..."
+
+    if az rest \
+      --method post \
+      --url "https://management.azure.com/subscriptions/${ARM_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.Web/sites/${FUNCTION_APP}/syncfunctiontriggers?api-version=2022-03-01" \
+      --output none; then
+
+        echo "Function trigger synchronization succeeded."
+        SYNC_SUCCESS=true
+        break
+    fi
+
+    echo "Function host not ready yet."
+    sleep 10
+done
+
+--------------------------------------------------
+CHANGE 10 - IMPORTANT failure diagnostics
+--------------------------------------------------
+
+If synchronization still fails, DO NOT just print:
+
+"Function host did not become ready."
+
+Before exit 1, collect diagnostics.
+
+Run:
+
+echo "===== FUNCTION APP STATUS ====="
+
+az functionapp show \
+  --name "$FUNCTION_APP" \
+  --resource-group "$RESOURCE_GROUP" \
+  -o json
+
+echo "===== FUNCTION APP SETTINGS ====="
+
+az functionapp config appsettings list \
+  --name "$FUNCTION_APP" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query "[?name=='FUNCTIONS_WORKER_RUNTIME' || name=='FUNCTIONS_EXTENSION_VERSION' || name=='WEBSITE_RUN_FROM_PACKAGE' || name=='AzureWebJobsStorage__accountName'].{name:name,value:value}" \
+  -o table
+
+echo "===== MANAGED IDENTITY ====="
+
+az functionapp identity show \
+  --name "$FUNCTION_APP" \
+  --resource-group "$RESOURCE_GROUP" \
+  -o json
+
+Then exit 1.
+
+--------------------------------------------------
+CHANGE 11 - Reduce huge ZIP logging
+--------------------------------------------------
+
+Remove:
+
+unzip -l "$PACKAGE"
+
+from normal workflow output.
+
+It prints ~1300 files and makes diagnosis difficult.
+
+Instead use:
+
+echo "ZIP top-level files:"
+unzip -Z1 "$PACKAGE" | awk '!/\//' | sort
+
+and:
+
+echo "ZIP file count:"
+unzip -Z1 "$PACKAGE" | wc -l
+
+--------------------------------------------------
+IMPORTANT
+--------------------------------------------------
+
+Do not make any unrelated changes.
+
+The deployment path is now correct:
+
+GitHub
+  -> upload ZIP to private Blob
+  -> WEBSITE_RUN_FROM_PACKAGE=<Blob URL>
+  -> Function system-assigned managed identity reads Blob
+  -> Function host starts
+  -> syncfunctiontriggers
+
+We are now debugging ONLY why the Function host runtime is unavailable.
+
+Before modifying the repository:
+1. inspect the current workflow
+2. inspect host.json
+3. inspect function_app.py
+4. inspect how sox-function.zip is built
+5. inspect requirements.txt
+6. confirm azure-functions is included
+7. show me the exact proposed diff
+
+Do not commit until these checks are complete.
