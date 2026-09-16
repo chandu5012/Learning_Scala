@@ -1,0 +1,244 @@
+I want to temporarily bypass the Azure Function deployment/runtime issue and test the complete business functionality manually from my local machine using Python 3.12.
+
+IMPORTANT:
+- First review the complete existing repository before making any changes.
+- Reuse the existing Python business logic wherever possible.
+- Do NOT modify the existing Terraform infrastructure.
+- Do NOT modify/delete the existing Azure Function, Y1 plan, Event Grid, Queue, Storage private endpoints, RBAC, GitHub Actions deployment workflow, or networking configuration.
+- Do NOT deploy any Azure resources.
+- This is only a LOCAL MANUAL END-TO-END TEST.
+- Keep this implementation isolated so it can later be removed without affecting the existing Azure Function implementation.
+
+Current requirement:
+
+Azure Storage
+    ↓
+Input file in existing storage container
+    ↓
+Local Python 3.12 script
+    ↓
+Read/download the file
+    ↓
+Execute the existing SOX file-processing/business logic
+    ↓
+Generate the required output/content
+    ↓
+Connect to Confluence
+    ↓
+Create/update the required Confluence page
+
+Please do the following.
+
+1. REVIEW EXISTING IMPLEMENTATION
+
+Before writing code, inspect the repository and identify:
+
+- Existing Azure Function Python code
+- function_app.py
+- host.json
+- requirements.txt
+- Existing file-processing logic
+- Existing Azure Blob/Queue logic
+- Existing Confluence integration
+- Existing Key Vault integration
+- Existing configuration/environment variables
+- INPUT_PREFIX
+- CONFLUENCE_BASE_URL
+- CONFLUENCE_SPACE_KEY
+- CONFLUENCE_PARENT_PAGE_ID
+- CONFLUENCE_SECRET_NAME
+- KEY_VAULT_URI
+- CONFLUENCE_PAGE_TITLE_PREFIX
+- MAX_FILE_SIZE_BYTES
+- STORAGE_ACCOUNT_NAME
+- QUEUE_NAME
+- STORAGE_LINK_METHOD
+- SOURCE_ENVIRONMENT
+
+Do not duplicate business logic if reusable functions already exist.
+
+2. CREATE A LOCAL MANUAL RUNNER
+
+Create a clean local entry point, for example:
+
+scripts/manual_storage_to_confluence.py
+
+The script must NOT require Azure Functions runtime.
+
+It should run simply as:
+
+python scripts/manual_storage_to_confluence.py
+
+3. AZURE AUTHENTICATION
+
+Use:
+
+DefaultAzureCredential
+
+It should support my existing local:
+
+az login
+
+Do NOT put Azure credentials, storage keys, client secrets, tokens, passwords, or connection strings directly in source code.
+
+4. STORAGE TEST
+
+First validate connectivity to the existing Azure Storage account.
+
+The script should:
+
+- connect to the configured Storage Account
+- connect to the configured input container
+- list blobs
+- print the blob selected for processing
+- download the blob
+- print file size
+- clearly report authentication/network/DNS/RBAC errors
+
+If storage cannot be reached, stop immediately with a useful error.
+
+5. FILE PROCESSING
+
+After downloading the file:
+
+- use the existing SOX processing logic
+- preserve the existing input validation
+- preserve file-size validation
+- preserve supported file types
+- preserve existing parsing/business rules
+- do not rewrite working business logic unnecessarily
+
+6. CONFLUENCE TEST
+
+Reuse the existing Confluence integration if one exists.
+
+The script should:
+
+- authenticate securely
+- validate Confluence connectivity
+- identify the configured space
+- use the configured parent page if applicable
+- generate the same page/content expected from the Azure Function
+- create or update the Confluence page
+- print the resulting page ID/title/status
+
+Do NOT print secrets or tokens in logs.
+
+7. KEY VAULT
+
+If the current implementation obtains the Confluence secret/token from Azure Key Vault, reuse that implementation using DefaultAzureCredential.
+
+Do not hard-code the Confluence token.
+
+If local access to Key Vault is unavailable, clearly identify that as a separate test failure instead of changing infrastructure.
+
+8. LOGGING
+
+Produce clear step-by-step output:
+
+[1] Authenticating to Azure
+[2] Connecting to Storage
+[3] Listing blobs
+[4] Downloading input file
+[5] Validating file
+[6] Processing file
+[7] Retrieving Confluence credentials
+[8] Connecting to Confluence
+[9] Creating/updating Confluence page
+[10] End-to-end test completed
+
+For failures print:
+
+FAILED STEP:
+ROOT CAUSE:
+ERROR:
+SUGGESTED ACTION:
+
+9. DRY RUN
+
+Add support for:
+
+python scripts/manual_storage_to_confluence.py --dry-run
+
+Dry run should:
+
+- authenticate
+- download/read the Storage file
+- execute processing
+- generate the Confluence content
+- NOT create/update anything in Confluence
+
+10. SPECIFIC FILE SUPPORT
+
+Allow:
+
+python scripts/manual_storage_to_confluence.py --blob <blob-name>
+
+If --blob is not provided, list available files and select/process according to the existing application logic.
+
+11. DEPENDENCIES
+
+Review requirements.txt.
+
+Add only dependencies that are actually required for this local runner.
+
+Do not unnecessarily upgrade existing packages.
+
+Python version must remain 3.12.
+
+12. SAFETY
+
+This is important:
+
+- No Terraform apply
+- No Azure resource creation/deletion
+- No Function App modification
+- No Storage configuration modification
+- No networking modification
+- No private endpoint modification
+- No RBAC modification
+- No Event Grid modification
+- No Queue modification
+- No GitHub Actions modification
+- No Confluence destructive operations
+- Never expose credentials in logs
+
+13. VALIDATION
+
+Before considering the work complete:
+
+- run Python syntax validation
+- validate imports
+- validate requirements
+- confirm function_app.py remains unaffected
+- confirm Terraform files remain unaffected
+- confirm GitHub Actions remain unaffected
+- show git diff
+- explain every file created/modified
+
+Do NOT commit or push anything.
+
+Finally provide:
+
+1. Files created
+2. Files modified
+3. Existing code reused
+4. Exact command to run the dry test
+5. Exact command to run the real test
+6. Required environment variables
+7. Expected output
+8. How to identify whether a failure is Storage, Key Vault, processing, or Confluence related
+
+The objective is to prove this path independently:
+
+Existing Azure Storage
+        ↓
+Local Python 3.12
+        ↓
+Existing SOX processing logic
+        ↓
+Existing Confluence integration
+        ↓
+Confluence page
+
+Do not attempt to solve the Azure Function Y1/FC1/VNet issue as part of this task.
