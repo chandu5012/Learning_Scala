@@ -1,0 +1,73 @@
+Summary:
+Request dedicated VNet integration subnet for SOX Azure Function – DEV
+
+Description:
+We are deploying the SOX Azure Function (sox-dev-function) in the DEV environment.
+
+The Function App needs to access the existing Azure Storage Account through private networking. The Storage Account has public network access disabled and uses private endpoints/private DNS.
+
+Current Function App:
+- Function App: sox-dev-function
+- Environment: DEV
+- Runtime: Python 3.12
+- Current Hosting Plan: Linux Consumption (Y1)
+- Storage Account: vtxcusvdpdataplatfe1a54
+- Storage Public Network Access: Disabled
+- Storage access is through Private Endpoints
+- System Assigned Managed Identity is enabled
+
+Issue:
+The Function infrastructure and package deployment are completing successfully, but the Function host is unable to initialize successfully and trigger synchronization is failing with ServiceUnavailable/InternalServerError from the Function host runtime.
+
+The current Y1 Consumption Function App does not support the required VNet integration for accessing the private Storage Account network path.
+
+We are planning to migrate the Function App to Azure Functions Flex Consumption (FC1) and configure VNet integration.
+
+Request:
+Please create/provide a dedicated subnet for the SOX Azure Function Flex Consumption VNet integration in the appropriate DEV VNet/network.
+
+Requirements:
+- Dedicated subnet for SOX Azure Function VNet integration.
+- Minimum subnet size: /27.
+- Configure the subnet with the delegation required for Azure Functions Flex Consumption.
+- The subnet must have connectivity/routing to the existing Storage private endpoints.
+- The subnet/network must be able to resolve the existing private DNS zones used by the Storage Account.
+- Connectivity is required for the Storage services used by Azure Functions, including Blob, Queue and Table.
+- Please reuse the existing centralized Private DNS architecture.
+- Do not create duplicate Private DNS zones.
+- Do not reuse or modify the existing Private Endpoint subnet.
+- Do not modify existing subnets that are already delegated to other services such as Microsoft.Web/serverFarms, PostgreSQL, SQL MI, etc.
+
+Existing DEV VNet reviewed:
+pdd-dev-vnet-east-us-2
+
+Existing subnet reviewed:
+pdd-dev-vnet-east-us-2-delegated-web-serverfarm-subnet-0
+
+The above subnet is already delegated to Microsoft.Web/serverFarms, so we do not want to modify/reuse it for the new Function integration requirement.
+
+Proposed unused CIDR identified from the current VNet subnet allocation:
+10.254.4.224/27
+
+Please validate the proposed CIDR against the network/IPAM allocation before creating the subnet. If this CIDR is reserved or unavailable, please provide another approved /27 or larger range.
+
+Suggested subnet name:
+pdd-dev-vnet-east-us-2-delegated-function-flex-subnet-0
+
+Target:
+Azure Functions Flex Consumption (FC1)
+
+Required Output:
+Please provide the following after the subnet is created/approved:
+
+1. Subnet name
+2. Subnet CIDR
+3. VNet name
+4. Resource Group
+5. Subnet delegation
+6. Full Azure Subnet Resource ID
+
+We will use the provided Subnet Resource ID in Terraform to configure the SOX Azure Function VNet integration.
+
+Expected Result:
+sox-dev-function should be able to use VNet integration and privately access the required Azure Storage services while keeping Storage public network access disabled.
