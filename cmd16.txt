@@ -1,0 +1,213 @@
+Review the complete Terraform and GitHub Actions implementation for the
+Azure Function before making any changes.
+
+Current confirmed architecture:
+
+- Function App: sox-dev-function
+- Linux Python 3.12
+- Current App Service plan SKU = Y1
+- Current resource = azurerm_linux_function_app
+- Current Function uses SystemAssigned managed identity
+- AzureWebJobsStorage uses managed identity
+- Storage account = vtxcusvdpdataplatfe1a54
+- Storage account public network access is disabled
+- Storage is accessed through private endpoints
+- Blob private endpoint DNS resolves to 10.253.200.10
+- Private DNS zone is privatelink.blob.core.windows.net
+- Storage Blob/Queue/Table RBAC has already been granted to the Function
+  managed identity.
+- GitHub runner can successfully read/write the storage account.
+- Function host repeatedly fails during syncfunctiontriggers with
+  ServiceUnavailable/InternalServerError.
+- Azure portal confirms current Function App:
+    Virtual network integration = Not supported
+    Outbound DNS = Default (Azure-provided)
+- Current Y1 Consumption plan does not support outbound VNet integration.
+
+ROOT CAUSE TO ADDRESS:
+
+The Function runtime must access its private AzureWebJobsStorage account,
+but the current Y1 Consumption Function cannot integrate with the VNet
+containing/reaching the storage private endpoints.
+
+Do NOT add more retry loops.
+Do NOT change RBAC blindly.
+Do NOT add public storage access.
+Do NOT add SAS tokens.
+Do NOT weaken storage security.
+Do NOT keep the current external WEBSITE_RUN_FROM_PACKAGE deployment
+design if it is incompatible with the target hosting plan.
+
+TARGET ARCHITECTURE:
+
+Migrate the Function hosting architecture from legacy Linux Consumption
+(Y1) to Azure Functions Flex Consumption with VNet integration.
+
+Before editing code:
+
+1. Inspect the entire repository.
+2. Inspect:
+   - azure-infra/main.tf
+   - variables.tf
+   - outputs.tf
+   - provider configuration
+   - tfvars
+   - .github/workflows/azure-infra-deploy.yaml
+   - Function packaging/deployment code
+3. Determine the installed azurerm provider version.
+4. Verify which Terraform resources/properties are required for
+   Azure Functions Flex Consumption for that provider version.
+5. Do not invent unsupported Terraform attributes.
+
+NETWORK REQUIREMENTS:
+
+Create/use a dedicated Function integration subnet.
+
+Requirements:
+- Same Azure region as the Function App.
+- Minimum /27 for Flex Consumption.
+- Delegate subnet to:
+      Microsoft.App/environments
+- The subnet/VNet must be able to resolve and route to the existing
+  storage private endpoints.
+- Reuse the organization's existing VNet/private DNS architecture
+  where appropriate.
+- Do NOT create duplicate private DNS zones.
+- Existing central private DNS zones should remain authoritative.
+- Ensure the integration VNet is linked to the required private DNS zones.
+
+IMPORTANT:
+
+Storage requires more than Blob connectivity for Azure Functions host
+operations.
+
+Review private endpoint/DNS connectivity for:
+- blob
+- queue
+- table
+
+Do not assume the existing Blob and Queue configuration alone is sufficient.
+
+MANAGED IDENTITY:
+
+Preserve:
+    identity {
+      type = "SystemAssigned"
+    }
+
+Preserve managed-identity based AzureWebJobsStorage authentication.
+
+Preserve the required storage RBAC assignments:
+- Storage Blob Data Contributor
+- Storage Queue Data Contributor
+- Storage Table Data Contributor
+
+Keep Storage Blob Delegator only if actually required by the application
+logic.
+
+KEY VAULT:
+
+Preserve:
+- Key Vault Secrets User
+- SystemAssigned identity
+- existing Key Vault configuration
+
+FUNCTION DEPLOYMENT:
+
+The current workflow manually uploads:
+    sox-function.zip
+
+to:
+    https://vtxcusvdpdataplatfe1a54.blob.core.windows.net/function-packages/
+
+and sets:
+    WEBSITE_RUN_FROM_PACKAGE=<blob URL>
+
+Do NOT automatically carry this deployment model into Flex Consumption.
+
+Replace it with the supported Flex Consumption deployment mechanism.
+
+Remove obsolete settings if Flex Consumption manages package deployment
+differently.
+
+Do not set:
+    WEBSITE_RUN_FROM_PACKAGE=<external blob URL>
+
+for Flex Consumption unless Microsoft/AzureRM explicitly requires it.
+
+FUNCTION CODE:
+
+Preserve Python 3.12 application code.
+
+Package must continue to contain at its root:
+    host.json
+    function_app.py
+    requirements.txt
+
+Do not modify application business logic unless required.
+
+TERRAFORM SAFETY:
+
+This environment already contains deployed Azure resources.
+
+Do not destroy/recreate shared resources such as:
+- storage account
+- private DNS zones
+- shared VNet
+- Key Vault
+unless technically unavoidable.
+
+Clearly identify which resources require replacement during migration.
+
+Do not apply automatically.
+
+Generate Terraform changes first and run:
+    terraform fmt
+    terraform validate
+    terraform plan
+
+Report any resources showing:
+    forces replacement
+before deployment.
+
+GITHUB ACTIONS:
+
+Remove the accumulated diagnostic/retry workaround code that was added
+only to troubleshoot Y1 Consumption deployment.
+
+Keep only useful validation.
+
+Update deployment workflow for the Flex Consumption deployment mechanism.
+
+Do not manually call syncfunctiontriggers repeatedly as a workaround for
+a Function host that cannot reach storage.
+
+FINAL VALIDATION:
+
+After deployment verify:
+
+1. Function hosting plan is Flex Consumption.
+2. VNet integration is enabled.
+3. Function integration subnet is correct.
+4. Function runtime DNS can resolve private storage endpoints.
+5. Blob private endpoint resolves privately.
+6. Queue private endpoint resolves privately.
+7. Table private endpoint resolves privately if AzureWebJobsStorage needs it.
+8. Function managed identity has required storage RBAC.
+9. Function host starts successfully.
+10. Functions/triggers are discovered.
+11. No ServiceUnavailable from syncfunctiontriggers.
+12. Event Grid -> Storage Queue -> Function processing works end-to-end.
+13. Storage public network access remains disabled.
+
+IMPORTANT:
+Do not make speculative fixes.
+
+First explain:
+- exact current root cause
+- exact target architecture
+- files that must change
+- resources that will be replaced
+- resources that will remain unchanged
+
+Then implement the minimum Terraform/workflow changes necessary.
