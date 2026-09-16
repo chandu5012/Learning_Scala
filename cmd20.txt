@@ -1,0 +1,101 @@
+Review the complete Terraform implementation before making any changes.
+
+CURRENT ERROR
+The GitHub Actions Terraform plan is failing during `terraform init` / state refresh with:
+
+403 KeyBasedAuthenticationNotPermitted
+"Key based authentication is not permitted on this storage account."
+
+The failure occurs while Terraform is retrieving existing Azure Storage resources, including:
+- Container: sox
+- Queue: sox-dev-queue
+- Storage account: vtxcusvdpdataplatfe1a54
+
+IMPORTANT:
+The existing Storage Account, containers, queues, private endpoints, networking, Function App, Event Grid, Key Vault, and other existing infrastructure MUST NOT be deleted or recreated as part of this fix.
+
+TASK
+
+1. Inspect all Terraform files, especially:
+   - providers.tf
+   - main.tf
+   - variables.tf
+   - environment tfvars
+   - backend configuration
+   - GitHub Actions plan/deploy workflows
+
+2. Identify exactly which `azurerm` provider instance/alias is being used by:
+   - azurerm_storage_container.incoming
+   - azurerm_storage_queue.events
+   - any other storage data-plane resources
+
+3. Determine why Terraform is attempting Storage Account key-based authentication.
+
+4. Update the appropriate AzureRM provider configuration to use Microsoft Entra ID / Azure AD authentication for Storage data-plane operations.
+
+   Where appropriate for the installed AzureRM provider version, configure:
+
+   storage_use_azuread = true
+
+5. IMPORTANT:
+   If multiple azurerm providers/provider aliases exist, do NOT blindly add this setting everywhere.
+   Add it only to the provider(s) actually responsible for the affected Storage resources.
+
+6. Verify the GitHub Actions OIDC identity/service principal has the required Azure Storage data-plane permissions.
+
+   Check whether it requires:
+   - Storage Blob Data Contributor
+   - Storage Queue Data Contributor
+   - Storage Table Data Contributor, only if Terraform accesses Table data
+
+   Do not use storage account keys as a workaround.
+
+7. Do NOT:
+   - enable Shared Key authentication on the Storage Account
+   - modify the existing `sox` container
+   - delete/recreate the Storage Account
+   - delete/recreate existing containers or queues
+   - change private endpoints
+   - change DNS configuration
+   - modify Function App networking
+   - change Y1/FC1 Function work as part of this fix
+   - make unrelated Terraform changes
+
+8. Also inspect the Terraform backend authentication separately.
+   Confirm whether the backend already uses Azure AD/OIDC authentication.
+   Do not assume the provider's `storage_use_azuread` setting automatically changes backend authentication.
+
+9. After making the minimum required change, run:
+   - terraform fmt -check
+   - terraform init -reconfigure using the existing dev backend configuration
+   - terraform validate
+   - terraform plan using the existing dev tfvars
+
+10. Review the plan carefully.
+
+STOP and report instead of applying anything if Terraform proposes unexpected destruction/recreation of:
+   - Storage Account
+   - existing containers
+   - queues
+   - private endpoints
+   - DNS zones/links
+   - Function App
+   - Key Vault
+   - Event Grid resources
+
+11. Do NOT run terraform apply.
+    Do NOT commit or push changes automatically.
+
+FINAL OUTPUT
+
+Provide:
+- Root cause
+- Exact provider/provider alias causing key-based authentication
+- Files changed
+- Exact lines/configuration changed
+- Required RBAC roles and which GitHub OIDC identity needs them
+- Whether backend authentication also required a change
+- terraform validate result
+- terraform plan result
+- Any resources Terraform proposes to create/update/destroy
+- Confirmation that no existing Storage resources were modified or deleted
