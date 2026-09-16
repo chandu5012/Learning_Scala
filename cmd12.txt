@@ -1,0 +1,91 @@
+We have now confirmed this is NOT a startup timing problem.
+
+Current status:
+
+- Function ZIP exists: SUCCESS
+- Upload to private Blob container: SUCCESS
+- GitHub OIDC Blob read/write: SUCCESS
+- Private endpoint/DNS/TLS: SUCCESS
+- WEBSITE_RUN_FROM_PACKAGE is configured: SUCCESS
+- Function App restart: SUCCESS
+- syncfunctiontriggers: FAILS 12/12 times
+- Error: InternalServerError from host runtime
+
+The Function App is Linux Consumption and WEBSITE_RUN_FROM_PACKAGE points
+to a private Blob URL without SAS.
+
+The Function App uses a SYSTEM-ASSIGNED managed identity and that identity
+already has Storage Blob Data Contributor on the storage account.
+
+The missing configuration is managed-identity authentication for the
+run-from-package Blob.
+
+Implement the following.
+
+1. When configuring the Function App, set BOTH application settings:
+
+WEBSITE_RUN_FROM_PACKAGE=<private blob package URL>
+
+WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID=SystemAssigned
+
+Use:
+
+az functionapp config appsettings set \
+  --name "$FUNCTION_APP" \
+  --resource-group "$RESOURCE_GROUP" \
+  --settings \
+    "WEBSITE_RUN_FROM_PACKAGE=${PACKAGE_URL}" \
+    "WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID=SystemAssigned" \
+  --output none
+
+2. Keep the existing system-assigned managed identity.
+
+Do NOT create a user-assigned managed identity.
+
+3. Keep the existing Storage Blob Data Contributor role assigned to the
+Function App managed identity.
+
+Do NOT add Storage Blob Data Owner.
+
+4. Do NOT use SAS tokens, storage account keys, connection strings or
+client secrets for the package.
+
+5. Keep public network access disabled.
+
+6. Keep the existing private Blob endpoint and private DNS configuration.
+
+7. Keep the current package upload using:
+
+az storage blob upload
+--auth-mode login
+
+8. After setting both application settings, restart the Function App.
+
+9. Keep trigger synchronization retry logic, but reduce it to 6 attempts
+with 10-second intervals. We already proved that 12 retries without the
+managed-identity setting does not solve the issue.
+
+10. Update the post-deployment validation to verify BOTH settings exist:
+
+WEBSITE_RUN_FROM_PACKAGE
+
+and
+
+WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID
+
+The second value must equal:
+
+SystemAssigned
+
+11. Do not modify Terraform networking, private endpoints, DNS, storage
+RBAC, or unrelated infrastructure.
+
+12. Do not reintroduce Azure/functions-action@v1.
+
+13. Remove any obsolete diagnostic code that was only used to investigate
+the previous PublishContent problem.
+
+14. Before committing, show me ONLY the workflow diff and explain exactly
+where WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID=SystemAssigned was added.
+
+Do not make any unrelated changes.
