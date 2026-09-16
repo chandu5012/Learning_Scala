@@ -1,0 +1,361 @@
+Review the current Terraform implementation and modify the Azure Function architecture based on the confirmed recommendation from the Azure/network team.
+
+BACKGROUND
+
+We originally had:
+
+Y1 Consumption Function
+→ could not meet the required VNet/private Storage connectivity.
+
+We then migrated to:
+
+FC1 Flex Consumption
+→ azurerm_function_app_flex_consumption
+→ existing App Service delegated subnet
+
+However, deployment now fails with:
+
+OnlyOneServiceAssociationLinkAllowedPerSubnet
+
+The existing delegated App Service subnet already contains:
+
+serviceAssociationLinks/AppServiceLink
+
+while Flex Consumption attempts to create:
+
+serviceAssociationLinks/legionServiceLink
+
+Therefore Flex Consumption cannot use this existing subnet.
+
+The Azure/network team has now recommended using:
+
+P1v4 (Premium v4)
+
+They confirmed this is the pattern used by the CNE team and it can be scaled later if traffic increases.
+
+GOAL
+
+Replace the current FC1 Flex Consumption implementation with a standard Linux Azure Function App running on a P1v4 App Service Plan and integrate it with the existing confirmed App Service delegated subnet.
+
+Target architecture:
+
+P1v4 App Service Plan
+        ↓
+Linux Function App
+        ↓
+Existing App Service delegated subnet
+        ↓
+VNet integration
+        ↓
+Existing private Storage Account
+
+IMPORTANT:
+Do NOT run terraform apply automatically.
+
+--------------------------------------------------
+1. REMOVE FLEX CONSUMPTION IMPLEMENTATION
+--------------------------------------------------
+
+Remove/replace the current:
+
+azurerm_function_app_flex_consumption.function
+
+Do NOT continue using Flex Consumption.
+
+Remove Flex-specific configuration that is no longer required, including configuration related specifically to:
+
+FC1
+Flex Consumption
+legionServiceLink
+Flex deployment storage configuration
+Flex-specific runtime configuration
+
+Do not remove application configuration that is still required by the standard Linux Function App.
+
+--------------------------------------------------
+2. APP SERVICE PLAN
+--------------------------------------------------
+
+Update the Function App Service Plan to use:
+
+os_type  = "Linux"
+sku_name = "P1v4"
+
+Use the existing Terraform naming conventions.
+
+The existing function plan naming should remain consistent with the repository standards.
+
+Do NOT attempt an unsupported in-place conversion from FC1.
+
+Review Terraform state and resource dependencies carefully and let Terraform determine the required replacement.
+
+--------------------------------------------------
+3. FUNCTION APP
+--------------------------------------------------
+
+Use the appropriate standard Linux Function App Terraform resource:
+
+azurerm_linux_function_app
+
+Configure it to use the P1v4 service plan.
+
+Preserve:
+
+Python runtime
+Python 3.12
+system-assigned managed identity
+existing application settings where applicable
+existing tags
+HTTPS configuration
+TLS configuration
+existing naming conventions
+
+For the Linux Function App, configure Python using the supported site_config/application_stack configuration.
+
+For example, use the equivalent supported structure for:
+
+application_stack {
+    python_version = "3.12"
+}
+
+Do not blindly copy Flex-specific runtime properties.
+
+--------------------------------------------------
+4. VNET INTEGRATION
+--------------------------------------------------
+
+Use the existing confirmed App Service delegated subnet:
+
+pdd-crossnet-dev-appservice-vnet-central-us
+    ↓
+pdd-crossnet-dev-appservice-vnet-central-us-delegated-app-service-subnet-0
+
+Use the existing subnet ID already configured in the repository.
+
+This subnet already has:
+
+AppServiceLink
+
+That is expected for the P1v4/standard App Service architecture.
+
+Do NOT:
+
+- create a new subnet
+- delete AppServiceLink
+- create legionServiceLink manually
+- modify subnet delegation
+- modify the existing VNet
+- modify NSGs
+- modify routing
+
+Configure the Linux Function App's VNet integration using the supported Terraform property/resource.
+
+--------------------------------------------------
+5. STORAGE
+--------------------------------------------------
+
+Preserve the existing Storage Account completely.
+
+Do NOT recreate or modify:
+
+Storage Account
+Blob containers
+Queue
+Tables
+Storage private endpoints
+Blob private endpoint
+Queue private endpoint
+Table private endpoint
+Private DNS zones
+DNS VNet links
+
+The Function must continue accessing the existing private Storage Account through the VNet.
+
+Preserve managed-identity based Storage access where currently configured.
+
+--------------------------------------------------
+6. RBAC
+--------------------------------------------------
+
+Preserve/reconnect the Function's new system-assigned managed identity to all required existing RBAC assignments.
+
+This includes, where currently configured:
+
+Storage Blob Data Contributor
+Storage Blob Delegator
+Storage Queue Data Contributor
+Storage Table Data Contributor
+Key Vault Secrets User
+
+Because changing the Function resource may create a new principal_id, ensure the role assignments reference:
+
+azurerm_linux_function_app.function.identity[0].principal_id
+
+or the equivalent new Linux Function resource.
+
+Do not reference the removed Flex Function principal ID.
+
+--------------------------------------------------
+7. KEY VAULT
+--------------------------------------------------
+
+Preserve the existing Key Vault.
+
+Do NOT recreate or modify the Key Vault.
+
+Preserve:
+
+KEY_VAULT_URI
+CONFLUENCE_SECRET_NAME
+
+and the Function managed identity's Key Vault Secrets User access.
+
+--------------------------------------------------
+8. CONFLUENCE
+--------------------------------------------------
+
+Do NOT spend time completing the Confluence configuration now.
+
+Temporary placeholders may remain where already required.
+
+My current objective is only to prove:
+
+P1v4 Function
+        ↓
+VNet integration
+        ↓
+Private Storage connectivity
+
+I will modify the Python files and finalize the Confluence configuration later.
+
+--------------------------------------------------
+9. APP SETTINGS REVIEW
+--------------------------------------------------
+
+Because we are moving from Flex Consumption back to a standard Linux Function App, review the settings that were removed for Flex.
+
+In particular review whether the standard Linux Function App requires:
+
+FUNCTIONS_WORKER_RUNTIME = "python"
+
+AzureWebJobsStorage
+
+WEBSITE_RUN_FROM_PACKAGE
+
+Do not blindly add/remove them.
+
+Configure them according to the requirements of azurerm_linux_function_app with Python 3.12 and our deployment mechanism.
+
+Explain what was kept, restored, or removed.
+
+--------------------------------------------------
+10. EVENT GRID / QUEUE
+--------------------------------------------------
+
+Preserve the existing Event Grid and Queue architecture.
+
+Do NOT recreate unrelated Event Grid resources.
+
+Update references only if required because the Function resource/principal changes.
+
+--------------------------------------------------
+11. EXISTING INFRASTRUCTURE MUST REMAIN UNCHANGED
+--------------------------------------------------
+
+Do NOT recreate or destroy:
+
+Storage Account
+Storage private endpoints
+Private DNS zones
+DNS links
+Key Vault
+Event Grid resources unless strictly required by Function replacement
+VNet
+Subnet
+NSG
+Route tables
+
+Only make changes required to migrate:
+
+FC1 Flex Function
+        ↓
+P1v4 Linux Function App
+
+--------------------------------------------------
+12. TERRAFORM STATE / PREVIOUS FAILED DEPLOYMENTS
+--------------------------------------------------
+
+The previous Flex Function deployment failed before successful Function creation.
+
+Review the Terraform state before making assumptions.
+
+Do NOT manually delete state entries unless absolutely necessary.
+
+Do NOT use:
+
+-lock=false
+
+Do NOT automatically force-unlock state.
+
+Do not manually delete Azure resources.
+
+--------------------------------------------------
+13. VALIDATION
+--------------------------------------------------
+
+After implementing the changes run:
+
+terraform fmt
+terraform validate
+
+Then generate the DEV Terraform plan using the repository's existing backend and workflow conventions.
+
+DO NOT RUN TERRAFORM APPLY.
+
+--------------------------------------------------
+14. PLAN SAFETY REVIEW
+--------------------------------------------------
+
+Carefully inspect the resulting Terraform plan.
+
+Expected changes should primarily relate to:
+
+- replacing/removing FC1 service plan configuration
+- creating/updating P1v4 App Service Plan
+- creating azurerm_linux_function_app
+- VNet integration
+- Function managed identity dependent RBAC updates
+
+The plan must NOT unexpectedly destroy/recreate:
+
+- Storage Account
+- Storage containers
+- Queue/Table
+- Storage private endpoints
+- Private DNS
+- Key Vault
+- VNet/subnet
+- Event Grid
+
+If any of those resources are scheduled for destruction/replacement, STOP and report the reason instead of applying.
+
+--------------------------------------------------
+15. FINAL REPORT
+
+After making the changes, provide:
+
+1. Files modified
+2. FC1/Flex resources removed
+3. P1v4 service plan configuration
+4. Linux Function App configuration
+5. Python runtime/version
+6. Existing subnet ID being used
+7. VNet integration configuration
+8. App settings kept/restored/removed
+9. Managed identity/RBAC changes
+10. Terraform plan add/change/destroy/replace summary
+11. Exact resources being destroyed/replaced
+12. Confirmation Storage/private endpoints/DNS/Key Vault/VNet are unchanged
+13. Any remaining blockers
+
+DO NOT RUN TERRAFORM APPLY.
