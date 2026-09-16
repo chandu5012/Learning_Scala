@@ -1,0 +1,125 @@
+The deployment still fails after adding:
+
+WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID=SystemAssigned
+
+Do NOT change Azure RBAC, private endpoints, DNS, networking, Terraform,
+managed identities, or storage permissions.
+
+Current confirmed state:
+
+1. Package upload succeeds.
+2. Blob DNS resolves to the private IP.
+3. HTTPS connectivity to Blob succeeds.
+4. GitHub OIDC can list containers.
+5. GitHub OIDC can write/delete blobs.
+6. GitHub OIDC can create/delete containers.
+7. WEBSITE_RUN_FROM_PACKAGE is set to the private Blob URL.
+8. WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID=SystemAssigned is set.
+9. Function App restart succeeds.
+10. syncfunctiontriggers still fails with:
+    ServiceUnavailable/InternalServerError from host runtime.
+
+We now need to diagnose why the Function HOST cannot start.
+
+Modify the workflow as follows.
+
+BEFORE uploading sox-function.zip, add a diagnostic validation step.
+
+Run:
+
+unzip -l "${GITHUB_WORKSPACE}/azure-infra/function/sox-function.zip"
+
+Then verify host.json exists exactly at the ROOT of the ZIP:
+
+unzip -l "${GITHUB_WORKSPACE}/azure-infra/function/sox-function.zip" |
+awk '{print $4}' |
+grep -qx 'host.json'
+
+If host.json is not exactly at the ZIP root:
+
+echo "ERROR: host.json is not at the root of the Function deployment ZIP."
+exit 1
+
+Also verify the Python Function application files expected by this project
+are present at the package root.
+
+For Python v2 programming model, verify function_app.py exists.
+
+If this repository uses Python v1 instead, verify the expected function
+directories/function.json files.
+
+Also print:
+
+unzip -l "${GITHUB_WORKSPACE}/azure-infra/function/sox-function.zip"
+
+Do NOT print secrets.
+
+IMPORTANT:
+Inspect how sox-function.zip is currently being created.
+
+The ZIP must contain contents like:
+
+host.json
+function_app.py
+requirements.txt
+<other application files>
+
+NOT:
+
+function/
+  host.json
+  function_app.py
+
+and NOT:
+
+sox-function/
+  host.json
+  function_app.py
+
+If the current ZIP command is zipping the parent directory, correct it so
+the CONTENTS of the Function project directory are zipped.
+
+Example:
+
+cd azure-infra/function/source
+zip -r ../sox-function.zip .
+
+Do not blindly use this path; inspect the repository and use the actual
+Function source directory.
+
+After package validation, keep the existing upload and run-from-package
+configuration.
+
+Also add a runtime diagnostic BEFORE syncfunctiontriggers:
+
+az functionapp show \
+  --name "$FUNCTION_APP" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query "{state:state,hostNames:hostNames}" \
+  -o json
+
+Print the relevant non-secret app settings:
+
+az functionapp config appsettings list \
+  --name "$FUNCTION_APP" \
+  --resource-group "$RESOURCE_GROUP" \
+  --query "[?name=='FUNCTIONS_WORKER_RUNTIME' || name=='FUNCTIONS_EXTENSION_VERSION' || name=='WEBSITE_RUN_FROM_PACKAGE' || name=='WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID' || name=='AzureWebJobsStorage__accountName'].{name:name,value:value}" \
+  -o table
+
+Expected configuration should include:
+
+FUNCTIONS_WORKER_RUNTIME=python
+FUNCTIONS_EXTENSION_VERSION=~4
+WEBSITE_RUN_FROM_PACKAGE=<blob URL>
+WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID=SystemAssigned
+AzureWebJobsStorage__accountName=vtxcusvdpdataplatfe1a54
+
+Do not modify any of these automatically except the two run-from-package
+settings already managed by this deployment.
+
+Do NOT increase the retry count.
+
+The objective of this change is to identify the Function host startup
+failure, especially malformed ZIP structure or missing runtime settings.
+
+Show me the resulting diff before making unrelated changes.
