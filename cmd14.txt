@@ -1,0 +1,93 @@
+We have identified the immediate failure.
+
+DO NOT change Azure RBAC, managed identity, storage roles, private endpoints,
+DNS, networking, WEBSITE_RUN_FROM_PACKAGE, Terraform, or Function App infrastructure.
+
+The latest log proves function_app.py IS at the root of sox-function.zip:
+
+function_app.py
+sample-event.json
+...
+
+But the validation incorrectly fails with:
+
+awk: close failed on file "/dev/stdout" (Broken pipe)
+ERROR: function_app.py is not at the root...
+
+Root cause:
+
+The workflow is using:
+
+unzip -l "$PACKAGE" | awk '{print $4}' | grep -qx 'function_app.py'
+
+while the shell has:
+
+set -euo pipefail
+
+grep -q exits immediately after finding function_app.py.
+awk/unzip can then receive SIGPIPE / Broken pipe.
+Because pipefail is enabled, the pipeline is considered failed even though
+function_app.py exists.
+
+FIX THIS VALIDATION ONLY.
+
+Replace BOTH host.json and function_app.py validation pipelines with a method
+that does not use grep -q on a long unzip pipeline.
+
+Use:
+
+ZIP_FILES="$(unzip -Z1 "$PACKAGE")"
+
+echo "Checking required Azure Function files..."
+
+if ! grep -Fx 'host.json' <<< "$ZIP_FILES" >/dev/null; then
+    echo "ERROR: host.json is not at the root of the Function deployment ZIP."
+    exit 1
+fi
+
+if ! grep -Fx 'function_app.py' <<< "$ZIP_FILES" >/dev/null; then
+    echo "ERROR: function_app.py is not at the root of the Python v2 Function deployment ZIP."
+    exit 1
+fi
+
+echo "host.json found at ZIP root."
+echo "function_app.py found at ZIP root."
+
+Also validate requirements.txt, but do not necessarily fail solely because it
+is missing if dependencies are already correctly packaged:
+
+if grep -Fx 'requirements.txt' <<< "$ZIP_FILES" >/dev/null; then
+    echo "requirements.txt found at ZIP root."
+else
+    echo "WARNING: requirements.txt not found at ZIP root."
+fi
+
+IMPORTANT:
+
+Do NOT use:
+
+unzip -l "$PACKAGE" | awk ... | grep -q ...
+
+for these validations.
+
+Keep:
+
+set -euo pipefail
+
+Do NOT disable pipefail.
+
+The ZIP currently contains about 1316 files, so avoid piping the entire
+unzip output into grep -q.
+
+Also keep the existing:
+
+unzip -l "$PACKAGE"
+
+only as diagnostic output if desired.
+
+After fixing this false validation failure, continue with the existing
+package upload and Function deployment.
+
+Do not make any other infrastructure or Azure permission changes.
+
+Before committing, show the exact diff for the validation section only.
