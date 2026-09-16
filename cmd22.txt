@@ -1,0 +1,129 @@
+Review the latest DEV deployment failure for the Azure Flex Consumption Function App and fix it.
+
+Current deployment error:
+
+"The following app setting
+(Site.SiteConfig.AppSettings.FUNCTIONS_WORKER_RUNTIME)
+for Flex Consumption sites is invalid.
+Please remove or rename it before retrying."
+
+The failing Terraform resource is:
+
+azurerm_function_app_flex_consumption.function
+
+IMPORTANT:
+Review the existing Terraform implementation before changing anything.
+
+Please do the following:
+
+1. Remove this legacy setting from the Flex Function app_settings:
+
+FUNCTIONS_WORKER_RUNTIME = "python"
+
+Flex Consumption must NOT receive FUNCTIONS_WORKER_RUNTIME through app_settings.
+
+2. Preserve the actual Python runtime configuration on the Flex resource.
+
+It must continue to use:
+
+runtime_name    = "python"
+runtime_version = "3.12"
+
+or the equivalent supported configuration already present in
+azurerm_function_app_flex_consumption.
+
+Do NOT remove Python 3.12.
+
+3. Review ALL app_settings currently being passed to the Flex Function.
+
+These settings were originally designed for the old Y1 Linux Consumption Function, so identify any other settings that are legacy/invalid for Flex Consumption.
+
+Specifically verify:
+
+- FUNCTIONS_WORKER_RUNTIME
+- WEBSITE_RUN_FROM_PACKAGE
+- AzureWebJobsStorage
+- AzureWebJobsStorage__accountName
+- AzureWebJobsStorage__credential
+
+Do not blindly remove settings.
+
+For every setting:
+- confirm whether Flex Consumption supports/requires it
+- keep it if required
+- remove it if Flex manages the equivalent through dedicated resource properties
+
+4. Pay particular attention to WEBSITE_RUN_FROM_PACKAGE.
+
+The current Terraform plan showed:
+
+WEBSITE_RUN_FROM_PACKAGE = "1"
+
+Verify whether this should exist when using:
+
+azurerm_function_app_flex_consumption
+
+with the configured Flex deployment storage / zip deployment mechanism.
+
+If it is a legacy Y1 setting and Flex does not require it, remove it.
+
+5. Do NOT change the current architecture:
+
+Y1 -> FC1 replacement
+azurerm_function_app_flex_consumption
+Python 3.12
+existing confirmed App Service delegated subnet
+existing private Storage connectivity
+
+6. Do NOT modify or recreate:
+
+- Storage Account
+- Blob/Queue/Table containers
+- Storage private endpoints
+- Private DNS zones
+- DNS VNet links
+- Key Vault
+- Event Grid
+- existing VNet/subnet
+- unrelated Terraform resources
+
+7. Preserve the managed identity and required RBAC:
+
+- Storage Blob Data Contributor
+- Storage Blob Delegator
+- Storage Queue Data Contributor
+- Storage Table Data Contributor
+- Key Vault Secrets User
+
+8. Do not work on the Confluence placeholders now.
+
+I only want to prove that:
+
+FC1 Flex Function
+      ->
+VNet integration
+      ->
+Private Storage
+
+deploys and starts successfully.
+
+Confluence configuration and Python application changes will be completed later.
+
+9. After making the minimum required changes, run:
+
+terraform fmt
+terraform validate
+
+Then generate the DEV Terraform plan.
+
+DO NOT run terraform apply automatically.
+
+10. At the end show me:
+
+- files modified
+- FUNCTIONS_WORKER_RUNTIME removal
+- Python runtime configuration retained
+- whether WEBSITE_RUN_FROM_PACKAGE was kept or removed and why
+- any other legacy Y1 app settings removed
+- Terraform plan add/change/destroy/replace summary
+- confirmation that no unrelated infrastructure will be modified
