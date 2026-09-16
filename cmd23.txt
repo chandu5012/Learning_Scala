@@ -1,0 +1,123 @@
+Create a safe GitHub Actions workflow for manually unlocking the Terraform remote state for this repository.
+
+Current backend:
+- Azure Storage Terraform backend
+- DEV state path:
+  tfstate/soxcompliance/dev/azure-infra.tfstate
+- Terraform version currently used by the repository: preserve existing version
+- Existing authentication: preserve the same Azure login / managed identity / runner authentication used by the current plan and deploy workflows.
+
+Problem:
+A cancelled Terraform apply left the remote state locked and the next deployment failed with:
+
+Error acquiring the state lock
+State blob is already locked
+
+I want a MANUAL recovery workflow for stale Terraform state locks.
+
+Requirements:
+
+1. Create a new workflow:
+
+.github/workflows/terraform-unlock.yml
+
+2. Trigger ONLY manually using:
+
+workflow_dispatch
+
+Do NOT automatically run this before plan or deploy.
+
+3. Add inputs:
+
+environment:
+  description: Environment to unlock
+  required: true
+  type: choice
+  options:
+    - dev
+    - qa
+    - stg
+    - prd
+
+lock_id:
+  description: Terraform lock ID from the failed workflow
+  required: true
+  type: string
+
+4. Reuse the repository's existing:
+- runner configuration
+- Azure authentication
+- GitHub environment configuration
+- Terraform setup
+- 1Password/secrets pattern if applicable
+- backend configuration pattern
+
+Do not create a new authentication mechanism.
+
+5. Initialize Terraform using the selected environment backend configuration.
+
+For DEV this should correspond to:
+
+terraform init \
+  -input=false \
+  -backend-config="backend/dev.hcl"
+
+Use the corresponding backend file dynamically for the selected environment.
+
+6. Before unlocking, clearly print:
+
+Environment: <environment>
+Backend configuration: backend/<environment>.hcl
+Lock ID: <lock_id>
+
+Do NOT print secrets.
+
+7. Run:
+
+terraform force-unlock -force "${LOCK_ID}"
+
+against the initialized remote backend.
+
+Do NOT use:
+
+-lock=false
+
+Do NOT delete the tfstate blob.
+Do NOT delete/recreate the tfstate container.
+Do NOT modify Terraform state contents.
+Do NOT run terraform apply.
+
+8. Add concurrency protection consistent with the existing Terraform workflows so that an unlock cannot run concurrently with another Terraform operation for the same environment if the repository's workflow architecture supports this.
+
+Review the existing plan/deploy workflows and reuse the SAME environment-specific concurrency group if possible.
+
+This is important: do not create a concurrency design that allows the unlock workflow to run while a legitimate deploy is actively using the same state.
+
+9. Add a confirmation input:
+
+confirm_unlock:
+  description: Type UNLOCK to confirm stale lock removal
+  required: true
+  type: string
+
+The workflow must fail safely unless:
+
+confirm_unlock == "UNLOCK"
+
+10. Add clear comments explaining:
+
+This workflow is ONLY for recovering a stale Terraform lock after confirming that no plan/apply/deploy process is currently running against the selected environment.
+
+11. Do not modify the normal plan/deploy workflows to automatically force-unlock state.
+
+12. After creating the workflow:
+- validate the YAML
+- explain how to run it from GitHub Actions
+- show which inputs I need to enter
+- do not execute it automatically
+
+For my current DEV issue, the lock ID reported by Terraform is:
+
+637996e4-dbca-b4b8-7b6f-cbb6fe924d27
+
+Do NOT hard-code this lock ID in the workflow. It must remain a workflow_dispatch input.
