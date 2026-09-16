@@ -1,0 +1,175 @@
+Review the current Terraform implementation for the Azure Function App and fix the Y1 -> FC1 migration issue.
+
+Current situation:
+- Existing Function App: sox-dev-function
+- Existing App Service Plan: sox-dev-function-plan
+- Current SKU: Y1
+- We changed the SKU from Y1 to FC1 because the Function App requires VNet integration to access the private Azure Storage account.
+- Terraform plan succeeded.
+- During terraform apply, Azure returned:
+
+409 Conflict:
+"The pricing tier 'FlexConsumption' is not allowed in this resource group."
+
+- The current Terraform attempted to UPDATE the existing App Service Plan in-place:
+  Y1 -> FC1
+- Azure/platform support suggested that the existing Y1 plan may need to be deleted/replaced instead of upgraded in-place.
+
+Please do the following:
+
+1. REVIEW BEFORE MODIFYING
+Inspect:
+- main.tf
+- variables.tf
+- outputs.tf
+- providers.tf
+- dev.tfvars
+- backend/dev.hcl
+- Azure Function resources
+- App Service Plan resources
+- Storage resources
+- Key Vault resources
+- RBAC role assignments
+- Event Grid resources
+- GitHub Actions plan/deploy workflows
+
+Do not make assumptions about resource dependencies.
+
+2. DO NOT MANUALLY DELETE AZURE RESOURCES
+Do not give instructions to manually delete:
+- sox-dev-function
+- sox-dev-function-plan
+- Storage account
+- containers
+- queues
+- private endpoints
+- private DNS zones
+- Key Vault
+- Event Grid resources
+
+The migration must be Terraform-controlled.
+
+3. CHANGE Y1 -> FC1 AS A REPLACEMENT/MIGRATION
+
+Do NOT attempt an in-place update of:
+
+azurerm_service_plan.function
+sku_name = "Y1" -> "FC1"
+
+Determine the correct Terraform architecture for creating a Flex Consumption Function App.
+
+If FC1 requires a different Terraform resource model, use the appropriate AzureRM resources rather than forcing the existing Y1 azurerm_linux_function_app configuration to work with FC1.
+
+The target should use the supported Flex Consumption implementation, including the appropriate function resource and deployment storage configuration.
+
+4. NETWORKING
+
+Use the existing confirmed App Service delegated subnet for Function VNet integration.
+
+Do NOT create another VNet unless required.
+Do NOT reuse the private-endpoint subnet.
+Do NOT create duplicate private DNS zones.
+
+The Function must be able to reach the existing private Storage Blob/Queue/Table endpoints through the approved VNet/private DNS architecture.
+
+5. PRESERVE EXISTING RESOURCES
+
+The following must remain unchanged unless technically required:
+
+- Existing Storage Account
+- Existing storage containers
+- Existing storage queue
+- Existing Blob/Queue/Table private endpoints
+- Existing private DNS zones
+- Existing DNS VNet links
+- Existing Key Vault
+- Existing Event Grid configuration
+
+Do not recreate shared infrastructure unnecessarily.
+
+6. MANAGED IDENTITY AND RBAC
+
+If replacing the Function App creates a new system-assigned managed identity, update the dependent role assignments to reference the new principal_id.
+
+Preserve/recreate the required permissions:
+
+- Storage Blob Data Contributor
+- Storage Blob Delegator
+- Storage Queue Data Contributor
+- Storage Table Data Contributor
+- Key Vault Secrets User
+
+Make sure Terraform dependency ordering is correct.
+
+7. FUNCTION DEPLOYMENT
+
+Preserve the existing Python 3.12 Function application.
+
+Review the current ZIP/package deployment mechanism and use the deployment mechanism supported by Flex Consumption.
+
+Do not retain obsolete Y1-specific deployment settings if they are incompatible with Flex Consumption.
+
+8. AVOID UNRELATED CHANGES
+
+Do not modify unrelated Snowflake, Jira, Confluence, Storage, networking, or application configuration.
+
+Preserve all existing tags. In particular, do not accidentally remove the existing Environment tag or other organizational tags.
+
+9. TERRAFORM PLAN SAFETY
+
+After implementing the changes:
+
+Run:
+terraform fmt
+terraform validate
+
+Then generate the DEV terraform plan.
+
+DO NOT run terraform apply.
+
+Provide a detailed summary of:
+
+ADD:
+<resources>
+
+CHANGE:
+<resources>
+
+DESTROY:
+<resources>
+
+REPLACE:
+<resources>
+
+For every destroyed/replaced resource, explain exactly why Terraform requires replacement.
+
+Pay special attention to:
+- sox-dev-function
+- sox-dev-function-plan
+- managed identity
+- Storage RBAC assignments
+- Key Vault role assignment
+- Event Grid resources
+
+10. IMPORTANT
+
+The objective is NOT simply to make Terraform succeed.
+
+The objective is:
+
+Y1 Function
+        |
+        | controlled Terraform migration
+        v
+FC1 Flex Consumption Function
+        |
+        | VNet integration
+        v
+Existing App Service delegated subnet
+        |
+        v
+Existing private Storage endpoints
+
+Do not apply any changes until the final Terraform plan has been reviewed.
+
+If Azure does not allow FC1 in this resource group even when created as a NEW plan/resource (rather than an in-place Y1 upgrade), stop and clearly report that finding instead of switching to another SKU automatically.
