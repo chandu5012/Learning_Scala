@@ -1,0 +1,563 @@
+Review the complete existing Python Azure Function implementation before making any changes.
+
+OBJECTIVE
+
+Currently the SOX processing flow generates a User Delegation SAS URL for the processed/source file and writes that SAS URL directly into the Confluence page.
+
+Problem:
+
+The SAS URL expires after a configured period. After expiration, users can no longer download the file from the Confluence page.
+
+Required design:
+
+Do NOT store a SAS URL directly in Confluence.
+
+Instead, store a permanent Azure Function download URL.
+
+When a user clicks the link:
+
+Confluence
+    ↓
+Permanent download Function URL
+    ↓
+download Function receives file_id
+    ↓
+Resolve file_id to the correct Azure Blob
+    ↓
+Validate file/user/request
+    ↓
+Generate a NEW short-lived User Delegation SAS
+    ↓
+Return HTTP 302 redirect
+    ↓
+Browser follows fresh SAS URL
+    ↓
+File downloads from Azure Blob Storage
+
+This allows the Confluence link to remain permanent while each actual Storage SAS token remains short-lived.
+
+============================================================
+1. REVIEW EXISTING CODE FIRST
+============================================================
+
+Inspect the existing repository and identify:
+
+- function_app.py
+- queue-trigger Function
+- existing file-processing code
+- existing Storage client/helper code
+- existing User Delegation SAS generation code
+- existing Confluence page generation/update code
+- current STORAGE_LINK_METHOD
+- current STORAGE_LINK_EXPIRATION
+- current blob/container/path extraction from Event Grid/Queue messages
+- existing DefaultAzureCredential / ManagedIdentityCredential implementation
+- existing Key Vault integration
+- existing logging/error handling
+
+Reuse existing working functions.
+
+Do NOT rewrite the complete application.
+
+Do NOT change Terraform/networking as part of this task.
+
+============================================================
+2. CURRENT EVENT FLOW MUST REMAIN
+============================================================
+
+Preserve the current architecture:
+
+File uploaded to Storage
+        ↓
+Event Grid BlobCreated event
+        ↓
+Storage Queue
+        ↓
+Queue-trigger Azure Function
+        ↓
+Queue message identifies the SPECIFIC blob
+        ↓
+Function downloads/processes that blob
+        ↓
+Function updates Confluence
+
+Do NOT make the Function scan the entire Storage container.
+
+The queue message/event already identifies the specific file that triggered processing.
+
+============================================================
+3. INTRODUCE FILE_ID
+============================================================
+
+For every file processed by the queue-trigger Function, create a stable file_id.
+
+Do NOT use a temporary SAS token as the file identifier.
+
+Preferred implementation:
+
+Use a deterministic opaque ID derived from the immutable blob reference.
+
+For example:
+
+file_id = SHA-256(
+    storage_account +
+    container +
+    blob_name
+)
+
+Use a URL-safe representation.
+
+Do NOT expose:
+- Storage account keys
+- SAS tokens
+- credentials
+- secrets
+
+Do not use Python's built-in hash() because it is not stable across processes.
+
+============================================================
+4. FILE_ID TO BLOB RESOLUTION
+============================================================
+
+Implement a reliable mapping from:
+
+file_id
+    ↓
+storage account
+container
+blob name
+
+Prefer the simplest implementation that fits the existing application.
+
+If the application already has a metadata/control store, reuse it.
+
+If no metadata store exists, implement a secure signed/encoded blob reference or another deterministic mechanism that does NOT require introducing a new database solely for this feature.
+
+Do NOT create a new database or Azure resource without first explaining why it is necessary.
+
+The mapping must survive Function restarts.
+
+Do NOT store file_id mappings only in Python memory.
+
+============================================================
+5. CREATE HTTP DOWNLOAD FUNCTION
+============================================================
+
+Add a new HTTP-trigger Azure Function.
+
+Route:
+
+/api/download
+
+Request example:
+
+GET /api/download?file_id=<file-id>
+
+Use the existing Python v2 programming model if function_app.py already uses it.
+
+Conceptual structure:
+
+@app.route(
+    route="download",
+    methods=["GET"],
+    auth_level=...
+)
+def download_file(req: func.HttpRequest) -> func.HttpResponse:
+    ...
+
+Follow the existing project's coding conventions.
+
+============================================================
+6. DOWNLOAD FUNCTION LOGIC
+============================================================
+
+The download Function must:
+
+1. Read file_id from query parameters.
+
+2. Validate:
+   - file_id exists
+   - file_id format is valid
+   - file_id resolves to an approved blob
+   - container/path is allowed
+   - blob exists
+
+3. Resolve file_id to:
+   - storage account
+   - container
+   - blob name
+
+4. Use Azure managed identity / DefaultAzureCredential.
+
+5. Generate a fresh USER DELEGATION SAS for ONLY that blob.
+
+6. SAS permissions should be READ ONLY.
+
+7. SAS lifetime should be short.
+
+Use:
+
+DOWNLOAD_SAS_EXPIRATION_SECONDS=600
+
+Default:
+10 minutes.
+
+Do NOT reuse the old long-lived Confluence SAS lifetime.
+
+8. Construct the complete fresh Blob SAS URL.
+
+9. Return:
+
+HTTP 302
+
+with:
+
+Location: <fresh SAS URL>
+
+Do NOT download the entire blob through the Function unless technically required.
+
+The Function should redirect the browser directly to Blob Storage.
+
+============================================================
+7. USER DELEGATION SAS
+============================================================
+
+Reuse the existing User Delegation SAS implementation if one already exists.
+
+Use:
+
+DefaultAzureCredential
+
+and BlobServiceClient.
+
+Generate a User Delegation Key with a short validity window.
+
+Then generate the blob SAS using:
+
+generate_blob_sas(...)
+
+Permissions:
+
+BlobSasPermissions(read=True)
+
+Do NOT grant:
+- write
+- delete
+- create
+- add
+
+Use UTC-aware timestamps.
+
+Allow a small negative start-time offset if required for clock skew, for example 5 minutes.
+
+Example conceptual validity:
+
+start  = now - 5 minutes
+expiry = now + 10 minutes
+
+Do not hard-code account keys.
+
+============================================================
+8. MANAGED IDENTITY / RBAC
+============================================================
+
+The Azure Function uses its system-assigned managed identity.
+
+Reuse the existing Storage RBAC.
+
+Verify that the identity has the permissions required to generate User Delegation SAS and read the target blob.
+
+Existing architecture already includes roles such as:
+
+Storage Blob Data Contributor
+Storage Blob Delegator
+
+Do NOT add Storage Blob Data Owner unless genuinely required.
+
+Do NOT use Storage Account keys.
+
+Do NOT use connection strings containing account keys.
+
+============================================================
+9. CONFLUENCE LINK CHANGE
+============================================================
+
+Change the existing Confluence page generation logic.
+
+CURRENT:
+
+Confluence page
+    ↓
+https://storage.../file.xlsx?<SAS>
+    ↓
+expires
+
+NEW:
+
+Confluence page
+    ↓
+https://<function-host>/api/download?file_id=<file-id>
+
+The Confluence page must NEVER contain a Storage SAS token.
+
+Generate the Function download URL dynamically using configuration.
+
+Add a non-secret configuration variable:
+
+DOWNLOAD_FUNCTION_BASE_URL
+
+For DEV this will ultimately point to the deployed Function App URL.
+
+Do NOT hard-code the host throughout the Python source.
+
+Build:
+
+download_url = (
+    f"{DOWNLOAD_FUNCTION_BASE_URL.rstrip('/')}"
+    f"/api/download?file_id={urlencode(file_id)}"
+)
+
+Use proper URL encoding.
+
+============================================================
+10. IMPORTANT SECURITY REQUIREMENT
+============================================================
+
+Do NOT expose arbitrary blob access.
+
+A malicious caller must NOT be able to supply:
+
+?blob=../../...
+?container=tfstate
+?blob=<arbitrary-storage-path>
+
+and receive a SAS.
+
+file_id must resolve only to files that the SOX application has processed/approved.
+
+Explicitly prevent access to infrastructure containers such as:
+
+tfstate
+function-packages
+$logs
+
+Do NOT allow the download endpoint to generate SAS URLs for arbitrary containers.
+
+============================================================
+11. AUTHENTICATION
+============================================================
+
+Review how the Function App is exposed.
+
+Do NOT automatically make the download endpoint anonymous without explaining the security impact.
+
+Preferred production design:
+
+Microsoft Entra ID authentication
+        ↓
+download Function
+        ↓
+authorization validation
+        ↓
+fresh SAS
+        ↓
+302 redirect
+
+If Entra authentication is not currently configured, implement the download logic so authentication can be enabled cleanly.
+
+For the initial DEV test, follow the repository's existing approved Function authentication model.
+
+Do NOT weaken existing authentication.
+
+============================================================
+12. CONFLUENCE PROCESSING
+============================================================
+
+The queue-trigger processing logic should now do:
+
+queue message
+    ↓
+identify exact blob
+    ↓
+process file
+    ↓
+generate file_id
+    ↓
+generate permanent Function download URL
+    ↓
+write Function URL into Confluence
+
+It should NOT generate a SAS during Confluence page creation.
+
+SAS generation should happen ONLY when /api/download is called.
+
+============================================================
+13. ERROR HANDLING
+============================================================
+
+Use appropriate HTTP responses.
+
+Missing file_id:
+400 Bad Request
+
+Invalid file_id:
+400 Bad Request
+
+Unknown file_id:
+404 Not Found
+
+Blob no longer exists:
+404 Not Found
+
+Unauthorized:
+401/403 as appropriate
+
+Storage authentication/RBAC failure:
+500 or appropriate controlled response
+
+Do NOT expose Azure exception internals, tokens, account information, or credentials to the HTTP client.
+
+Log enough information for troubleshooting without logging SAS tokens.
+
+============================================================
+14. LOGGING
+============================================================
+
+Log:
+
+request correlation ID
+file_id
+resolved container
+resolved blob name
+SAS generation success/failure
+redirect success
+
+Do NOT log:
+
+SAS token
+full SAS URL
+Azure access tokens
+Confluence token
+Storage account keys
+
+============================================================
+15. CONFIGURATION
+============================================================
+
+Add/reuse configuration:
+
+DOWNLOAD_FUNCTION_BASE_URL
+DOWNLOAD_SAS_EXPIRATION_SECONDS=600
+
+Keep existing:
+
+STORAGE_ACCOUNT_NAME
+STORAGE_LINK_METHOD=USER_DELEGATION_SAS
+
+Review whether the old:
+
+STORAGE_LINK_EXPIRATION
+
+is still needed elsewhere.
+
+Do not remove it if another application path uses it.
+
+============================================================
+16. LOCAL TESTING
+============================================================
+
+Add unit tests for:
+
+1. Valid file_id resolution.
+2. Invalid file_id.
+3. Unknown file_id.
+4. Blob not found.
+5. SAS generated with read-only permission.
+6. SAS expiry approximately 10 minutes.
+7. HTTP response is 302.
+8. Location header contains the expected blob URL.
+9. Confluence receives permanent Function URL, NOT SAS URL.
+10. Infrastructure containers cannot be requested.
+11. No SAS token appears in application logs.
+
+Mock Azure Storage where appropriate.
+
+Do not require live Azure access for unit tests.
+
+============================================================
+17. MANUAL DEV TEST
+============================================================
+
+Document the expected test:
+
+1. Upload test file to approved input container.
+2. Event Grid creates event.
+3. Queue receives event.
+4. Queue Function processes the exact file.
+5. Confluence page is created/updated.
+6. Confluence link points to:
+
+   https://<function-host>/api/download?file_id=<id>
+
+7. Click immediately:
+   file downloads.
+
+8. Wait more than the previous SAS expiration period.
+
+9. Click the SAME Confluence link again.
+
+10. Download Function generates a NEW SAS.
+
+11. File downloads successfully again.
+
+This proves the Confluence link itself does not expire.
+
+============================================================
+18. DO NOT CHANGE INFRASTRUCTURE
+============================================================
+
+Do NOT modify:
+
+P1v3 App Service Plan
+VNet integration
+subnet
+Storage private endpoints
+Private DNS
+Event Grid
+Queue
+Storage Account
+Key Vault
+Terraform infrastructure
+
+unless a genuinely required configuration variable/RBAC dependency is identified.
+
+If Terraform changes are required, report them separately.
+
+Do NOT apply Terraform automatically.
+
+============================================================
+19. FINAL OUTPUT
+============================================================
+
+Before committing, show me:
+
+1. Existing code reused.
+2. Files modified.
+3. Files created.
+4. file_id implementation.
+5. How file_id resolves to a blob.
+6. New HTTP-trigger Function code.
+7. User Delegation SAS generation code.
+8. HTTP 302 redirect implementation.
+9. Confluence link change.
+10. Security controls preventing arbitrary blob access.
+11. Configuration variables added.
+12. Unit tests added.
+13. Exact local test commands.
+14. Any Azure configuration/RBAC changes still required.
+15. Confirmation that no SAS token is stored in Confluence.
+16. Confirmation that clicking the same Confluence link later generates a fresh SAS.
+
+Do NOT commit or push automatically.
+Do NOT deploy automatically.
+Show the proposed implementation/diff first.
