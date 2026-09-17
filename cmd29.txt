@@ -1,0 +1,309 @@
+We are troubleshooting an Azure Python Function queue trigger.
+
+CURRENT STATUS
+
+Azure Function App:
+sox-dev-function
+
+OS:
+Linux
+
+Plan:
+P1v3
+
+Storage Account:
+vtxcusvdpdataplatfe1a54
+
+Queue:
+sox-dev-queue
+
+VNet integration is working.
+
+Event Grid is also working:
+- BlobCreated event matched successfully
+- Event Grid delivered the event successfully to the Storage Queue
+- Matched Events = 2
+- Delivered Events = 2
+
+Python code deployment is successful.
+
+Azure discovered these Functions:
+1. DownloadFile
+2. SoxReportProcessor
+
+SoxReportProcessor has this binding:
+
+connection = "AzureWebJobsStorage"
+queueName  = "sox-dev-queue"
+type       = "queueTrigger"
+
+However, SoxReportProcessor is not consuming the queue message.
+
+Current Function App settings include:
+
+AzureWebJobsStorage__accountName
+AzureWebJobsStorage__credential
+AzureWebJobsDashboard__accountName
+QUEUE_NAME
+
+Azure Portal search shows that these settings are NOT currently present:
+
+AzureWebJobsStorage__queueServiceUri
+AzureWebJobsStorage__blobServiceUri
+
+IMPORTANT:
+Do NOT immediately modify Terraform.
+
+First inspect the complete Terraform configuration and determine whether
+the existing AzureWebJobsStorage identity-based configuration is valid
+for the Azure Functions runtime/provider versions currently used.
+
+Also inspect:
+- azurerm provider version
+- azurerm_linux_function_app
+- storage_uses_managed_identity or equivalent configuration
+- app_settings
+- site_config
+- identity
+- storage RBAC
+- VNet integration
+- private endpoint / private DNS configuration
+
+=========================================================
+OBJECTIVE
+=========================================================
+
+Determine why the Azure Functions queue trigger cannot consume messages
+from sox-dev-queue even though Event Grid successfully delivers messages.
+
+Pay particular attention to AzureWebJobsStorage identity-based
+connection configuration.
+
+=========================================================
+CHECK 1 - EXISTING SETTINGS
+=========================================================
+
+Find exactly where these are generated:
+
+AzureWebJobsStorage__accountName
+AzureWebJobsStorage__credential
+
+Confirm their resolved DEV values should be:
+
+AzureWebJobsStorage__accountName =
+vtxcusvdpdataplatfe1a54
+
+AzureWebJobsStorage__credential =
+managedidentity
+
+Do not duplicate these settings.
+
+=========================================================
+CHECK 2 - SERVICE URIs
+=========================================================
+
+Determine whether this configuration should explicitly include:
+
+AzureWebJobsStorage__queueServiceUri =
+https://vtxcusvdpdataplatfe1a54.queue.core.windows.net
+
+AzureWebJobsStorage__blobServiceUri =
+https://vtxcusvdpdataplatfe1a54.blob.core.windows.net
+
+Also determine whether the Functions host requires:
+
+AzureWebJobsStorage__tableServiceUri
+
+for this application's runtime/extension configuration.
+
+Do NOT add settings that are unnecessary.
+
+Explain whether accountName alone allows Azure Functions to derive
+standard Azure Storage service endpoints.
+
+Because this Storage Account uses private networking, also verify that
+the standard service hostnames resolve through the expected Private DNS
+configuration from the Function App's VNet integration.
+
+=========================================================
+CHECK 3 - RBAC
+=========================================================
+
+Inspect existing Terraform role assignments for the system-assigned
+managed identity of:
+
+sox-dev-function
+
+Verify the identity has the required data-plane access for the queue
+trigger and Functions host.
+
+Check for:
+
+Storage Queue Data Contributor
+Storage Blob Data Contributor
+
+and, where actually required:
+
+Storage Blob Delegator
+
+Do not add duplicate role assignments.
+
+Explain any missing permission before changing Terraform.
+
+=========================================================
+CHECK 4 - QUEUE TRIGGER
+=========================================================
+
+Inspect function_app.py.
+
+Verify SoxReportProcessor uses the intended queue:
+
+sox-dev-queue
+
+and connection:
+
+AzureWebJobsStorage
+
+For example:
+
+@app.queue_trigger(
+    arg_name="message",
+    queue_name="sox-dev-queue",
+    connection="AzureWebJobsStorage"
+)
+
+If queue_name comes from configuration, verify how it is resolved.
+
+Do NOT change working Python business logic unnecessarily.
+
+=========================================================
+CHECK 5 - NETWORKING / DNS
+=========================================================
+
+The Function App is already VNet integrated with:
+
+pdd-crossnet-dev-appservice-vnet-central-us-delegated-app-service-subnet-0
+
+Do NOT modify this subnet.
+
+Verify that the Function can resolve/reach:
+
+vtxcusvdpdataplatfe1a54.queue.core.windows.net
+
+and:
+
+vtxcusvdpdataplatfe1a54.blob.core.windows.net
+
+through the existing private networking configuration.
+
+Check whether private endpoints and Private DNS zones exist for both
+Blob and Queue services.
+
+Do not create networking resources without first reporting what is
+missing.
+
+=========================================================
+CHECK 6 - HOST CONFIGURATION
+=========================================================
+
+Inspect host.json and requirements.txt.
+
+Verify the Azure Functions runtime and Storage Queue extension support
+the identity-based AzureWebJobsStorage configuration being used.
+
+Check for configuration that could prevent the queue listener from
+starting.
+
+Also check application/runtime logs for messages such as:
+
+- listener unable to start
+- AzureWebJobsStorage configuration error
+- authentication failed
+- authorization failed
+- queue not found
+- DNS resolution failure
+- connection refused
+- timeout
+- managed identity unavailable
+
+=========================================================
+IF SERVICE URIs ARE REQUIRED
+=========================================================
+
+Only if analysis shows they should be explicitly configured, update the
+existing Terraform Function App app_settings using the existing storage
+account resource/data source rather than hardcoding the account name.
+
+Preferred form:
+
+AzureWebJobsStorage__queueServiceUri = "https://${<existing_storage_account_reference>.name}.queue.core.windows.net"
+
+AzureWebJobsStorage__blobServiceUri = "https://${<existing_storage_account_reference>.name}.blob.core.windows.net"
+
+If tableServiceUri is genuinely required:
+
+AzureWebJobsStorage__tableServiceUri = "https://${<existing_storage_account_reference>.name}.table.core.windows.net"
+
+Reuse the repository's existing Terraform references and naming
+conventions.
+
+Do NOT create a second app_settings block.
+
+Do NOT hardcode DEV-specific values if the existing Terraform is
+environment-driven.
+
+=========================================================
+IMPORTANT SAFETY
+=========================================================
+
+Do NOT:
+
+- switch back to FC1/Flex Consumption
+- change P1v3
+- recreate the Function App
+- recreate the App Service Plan
+- modify VNet integration
+- modify the delegated subnet
+- recreate Event Grid
+- recreate the Storage Queue
+- recreate Storage Account
+- delete private endpoints
+- use Storage Account keys
+- add Storage connection strings containing keys
+- add SAS tokens
+- modify Confluence logic
+- run terraform apply
+- deploy automatically
+
+=========================================================
+EXPECTED OUTPUT
+=========================================================
+
+Before changing anything, report:
+
+1. Current AzureWebJobsStorage configuration found in Terraform.
+2. Current resolved values for DEV.
+3. Whether accountName + managedidentity is sufficient.
+4. Whether queueServiceUri is actually required.
+5. Whether blobServiceUri is actually required.
+6. Whether tableServiceUri is required.
+7. Existing Storage RBAC assigned to the Function identity.
+8. Whether RBAC is sufficient for the queue listener.
+9. Private endpoint/DNS configuration for Queue and Blob.
+10. Any likely reason the queue listener is not starting.
+11. Exact files/lines that need modification, if any.
+
+If a Terraform change is required, prepare the smallest possible diff.
+
+Then run only:
+
+terraform fmt
+terraform validate
+terraform plan
+
+Do NOT run terraform apply.
+
+Show the plan and confirm that the only intended changes are Function
+App configuration/RBAC settings required to fix the queue trigger.
+
+Do not destroy or replace any working infrastructure.
