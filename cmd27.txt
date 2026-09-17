@@ -1,0 +1,566 @@
+We have successfully deployed the Azure infrastructure for the SOX Function App.
+
+CURRENT WORKING INFRASTRUCTURE
+
+Environment: dev
+Azure subscription: PDD CrossNet Development
+Region: Central US
+
+Resource Group:
+cpe-centralus-corptoolsdev01-a-vdp-dataplatform-gov-service-development-rg
+
+Function App:
+sox-dev-function
+
+Function App OS:
+Linux
+
+App Service Plan:
+sox-dev-function-premium-plan
+
+SKU:
+P1v3
+
+Azure Functions Runtime:
+4.x
+
+The Function App is RUNNING.
+
+VNet integration is successfully configured with the existing App Service delegated subnet:
+
+pdd-crossnet-dev-appservice-vnet-central-us-delegated-app-service-subnet-0
+
+Storage Account:
+vtxcusvdpdataplatfe1a54
+
+Queue:
+sox-dev-queue
+
+Key Vault:
+vtx-vdp-sox-dev-cus-kv
+
+Application Insights:
+sox-dev-function-insights
+
+The Terraform infrastructure deployment is now successful.
+
+IMPORTANT:
+Do NOT modify the working Terraform networking, subnet, App Service Plan,
+Storage Account, Private Endpoints, Key Vault, Event Grid, RBAC or
+existing infrastructure unless absolutely required for application deployment.
+
+Do NOT change P1v3 back to P1v4 or FC1/Flex Consumption.
+
+Do NOT use azurerm_function_app_flex_consumption.
+
+========================================================
+OBJECTIVE
+========================================================
+
+The Azure Function App exists, but currently no Python Functions appear
+in Azure because the application code has not yet been deployed.
+
+Create a clean, production-style GitHub Actions application deployment
+workflow for deploying the existing Python Azure Function code to:
+
+sox-dev-function
+
+Infrastructure deployment and application deployment MUST remain independent.
+
+Infrastructure workflow:
+Terraform -> Azure infrastructure
+
+Application workflow:
+Python code -> build/package -> Azure Function App
+
+A change to Python application code must NOT execute Terraform.
+
+A Terraform infrastructure change must NOT unnecessarily redeploy application code.
+
+========================================================
+STEP 1 - INSPECT EXISTING REPOSITORY
+========================================================
+
+Before making any changes, inspect the complete repository.
+
+Identify:
+
+1. Existing Python Azure Function source code.
+2. function_app.py / __init__.py / host.json.
+3. requirements.txt.
+4. local_file_processor.py and related modules.
+5. Existing .github/workflows files.
+6. Existing Terraform workflows.
+7. Existing Azure login mechanism.
+8. Existing GitHub environment configuration.
+9. Existing 1Password integration.
+10. Existing Azure managed identity / federated identity authentication.
+11. Existing package/deployment scripts.
+12. Existing environment variable handling.
+13. Existing Key Vault integration.
+
+DO NOT create duplicate implementations if these already exist.
+
+Report what exists before deciding what needs to be added.
+
+========================================================
+STEP 2 - APPLICATION CONFIGURATION
+========================================================
+
+The Python application requires the following configuration.
+
+NON-SECRET CONFIGURATION:
+
+SOURCE_ENVIRONMENT=dev
+
+INPUT_PREFIX=dev/
+
+QUEUE_NAME=sox-dev-queue
+
+STORAGE_ACCOUNT_NAME=vtxcusvdpdataplatfe1a54
+
+STORAGE_LINK_EXPIRATION=86400
+
+STORAGE_LINK_METHOD=USER_DELEGATION_SAS
+
+MAX_FILE_SIZE_BYTES=104857600
+
+KEY_VAULT_URI=https://vtx-vdp-sox-dev-cus-kv.vault.azure.net/
+
+CONFLUENCE_BASE_URL=https://vertexinc.atlassian.net
+
+CONFLUENCE_SPACE_KEY=VDP
+
+CONFLUENCE_PARENT_PAGE_ID=7325319451
+
+CONFLUENCE_PAGE_TITLE_PREFIX=SOX Compliance Report
+
+CONFLUENCE_SECRET_NAME=sox-confluence-api-token
+
+FUNCTIONS_EXTENSION_VERSION=~4
+
+WEBSITE_RUN_FROM_PACKAGE=1
+
+Python runtime:
+3.12
+
+IMPORTANT:
+For Linux P1v3 Azure Function, configure Python runtime using the
+appropriate Function App stack configuration.
+
+Do NOT add FUNCTIONS_WORKER_RUNTIME if the current Azure resource/provider
+configuration does not require it or if it conflicts with the deployed
+Function App configuration.
+
+Inspect the current working Terraform before changing application settings.
+
+========================================================
+STEP 3 - SECRET MANAGEMENT
+========================================================
+
+Do NOT hardcode any secrets.
+
+The Confluence API token must NOT be committed to:
+
+- .env
+- tfvars
+- Python source
+- GitHub workflow
+- Terraform source
+
+The secret should come from Azure Key Vault.
+
+Existing Key Vault:
+
+vtx-vdp-sox-dev-cus-kv
+
+Expected secret name:
+
+sox-confluence-api-token
+
+The Function App system-assigned managed identity should retrieve the
+secret from Key Vault.
+
+Verify that the existing Terraform RBAC grants the Function App identity
+the appropriate Key Vault secret read permission.
+
+Do not create duplicate role assignments if they already exist.
+
+The application should use:
+
+DefaultAzureCredential
+
+or the existing managed-identity implementation.
+
+========================================================
+STEP 4 - GITHUB VARIABLES
+========================================================
+
+Use GitHub Environment variables where appropriate.
+
+Environment:
+dev
+
+Expected non-secret GitHub variables:
+
+AZURE_FUNCTION_APP_NAME=sox-dev-function
+
+AZURE_RESOURCE_GROUP=cpe-centralus-corptoolsdev01-a-vdp-dataplatform-gov-service-development-rg
+
+AZURE_LOCATION=centralus
+
+PYTHON_VERSION=3.12
+
+SOURCE_ENVIRONMENT=dev
+
+INPUT_PREFIX=dev/
+
+STORAGE_ACCOUNT_NAME=vtxcusvdpdataplatfe1a54
+
+QUEUE_NAME=sox-dev-queue
+
+KEY_VAULT_URI=https://vtx-vdp-sox-dev-cus-kv.vault.azure.net/
+
+CONFLUENCE_BASE_URL=https://vertexinc.atlassian.net
+
+CONFLUENCE_SPACE_KEY=VDP
+
+CONFLUENCE_PARENT_PAGE_ID=7325319451
+
+CONFLUENCE_PAGE_TITLE_PREFIX=SOX Compliance Report
+
+CONFLUENCE_SECRET_NAME=sox-confluence-api-token
+
+MAX_FILE_SIZE_BYTES=104857600
+
+STORAGE_LINK_EXPIRATION=86400
+
+STORAGE_LINK_METHOD=USER_DELEGATION_SAS
+
+IMPORTANT:
+
+Before adding these variables to the workflow, inspect whether some of
+them are already configured by Terraform as Function App settings.
+
+Do NOT create two competing configuration sources.
+
+Preferred separation:
+
+Terraform:
+Azure Function App runtime/application settings that belong to infrastructure.
+
+GitHub variables:
+Deployment-specific values needed by the application deployment workflow.
+
+Azure Key Vault:
+Secrets.
+
+1Password/GitHub secrets:
+Only CI/CD authentication secrets if required.
+
+========================================================
+STEP 5 - AZURE AUTHENTICATION
+========================================================
+
+Inspect the existing GitHub Actions Azure authentication.
+
+Reuse the existing organization-approved authentication mechanism.
+
+Prefer the existing Azure login / OIDC / managed identity mechanism.
+
+DO NOT introduce:
+- publish-profile authentication
+- long-lived Azure client secrets
+- hardcoded credentials
+
+unless the repository already explicitly uses an approved mechanism.
+
+Reuse existing GitHub environment variables/secrets for:
+
+AZURE_CLIENT_ID
+AZURE_TENANT_ID
+AZURE_SUBSCRIPTION_ID
+
+if those are already available.
+
+Do not duplicate secrets.
+
+========================================================
+STEP 6 - CREATE APPLICATION DEPLOYMENT WORKFLOW
+========================================================
+
+Create a separate workflow, for example:
+
+.github/workflows/deploy-function-app.yml
+
+The workflow should support:
+
+workflow_dispatch
+
+with environment input:
+
+dev
+qa
+stg
+prd
+
+For now DEV is the only environment that must be fully operational.
+
+Do not automatically deploy QA/STG/PRD until their configuration exists.
+
+The workflow should:
+
+1. Checkout repository.
+
+2. Setup Python 3.12.
+
+3. Locate the Azure Function application directory.
+
+4. Validate required files exist:
+
+host.json
+requirements.txt
+function_app.py OR supported Python Function structure
+
+5. Install dependencies into the correct Azure Function package structure.
+
+Example approach:
+
+pip install \
+  --target=".python_packages/lib/site-packages" \
+  -r requirements.txt
+
+Use the actual application directory after inspecting the repository.
+
+6. Run Python syntax validation.
+
+7. If tests exist, run them.
+
+8. Validate that secrets are NOT present in source files.
+
+9. Create the deployment package.
+
+10. Authenticate to Azure using the existing approved authentication method.
+
+11. Verify that the target Function App exists:
+
+sox-dev-function
+
+12. Verify its state is Running.
+
+13. Deploy the Python package to the existing Function App.
+
+Prefer an Azure-supported ZIP/package deployment mechanism compatible
+with Linux Azure Functions.
+
+Do NOT create another Function App.
+
+Do NOT create another App Service Plan.
+
+Do NOT run Terraform from this workflow.
+
+14. After deployment, restart the Function App only if required.
+
+15. Verify deployment succeeded.
+
+16. Query/list the deployed Azure Functions and fail the workflow if
+zero functions are discovered when the application is expected to
+contain functions.
+
+========================================================
+STEP 7 - STORAGE CONNECTIVITY
+========================================================
+
+The Function App uses:
+
+vtxcusvdpdataplatfe1a54
+
+Storage connectivity must use managed identity.
+
+Do NOT use:
+
+Storage Account keys
+Storage connection strings containing keys
+Hardcoded SAS tokens
+
+Existing configuration uses managed identity.
+
+Verify the Function App system-assigned identity has the required RBAC,
+including as applicable:
+
+Storage Blob Data Contributor
+Storage Queue Data Contributor
+Storage Blob Delegator
+
+Do not create duplicate assignments if they already exist.
+
+The Storage Account uses private networking.
+
+The Function App is already integrated with:
+
+pdd-crossnet-dev-appservice-vnet-central-us-delegated-app-service-subnet-0
+
+Do NOT change this subnet.
+
+========================================================
+STEP 8 - EVENT GRID
+========================================================
+
+Existing Event Grid resource:
+
+sox-dev-function-storage-events
+
+Inspect the current Event Grid configuration.
+
+Do not recreate it unnecessarily.
+
+Verify that the Event Grid subscription ultimately targets the correct
+deployed Function endpoint/function after application deployment.
+
+If the Function name is not known until code deployment, document the
+required dependency/order instead of making an unsafe Terraform change.
+
+========================================================
+STEP 9 - CONFLUENCE
+========================================================
+
+The application configuration is:
+
+Base URL:
+https://vertexinc.atlassian.net
+
+Space:
+VDP
+
+Parent Page ID:
+7325319451
+
+Page title prefix:
+SOX Compliance Report
+
+Secret:
+sox-confluence-api-token
+
+The API token must be obtained from Key Vault at runtime.
+
+Do not hardcode the Confluence token.
+
+If the current Python implementation expects username/token directly,
+refactor it so the secret is retrieved securely from Key Vault.
+
+Preserve existing business logic.
+
+========================================================
+STEP 10 - ALWAYS ON
+========================================================
+
+Azure currently shows:
+
+"Always on should be enabled for your app to improve function cold start
+and reliability."
+
+Because the Function App now runs on P1v3, inspect the existing
+azurerm_linux_function_app configuration.
+
+If appropriate, update:
+
+site_config {
+    always_on = true
+}
+
+This belongs in Terraform, NOT in the application deployment workflow.
+
+Do not apply Terraform automatically.
+
+Show this as a separate infrastructure change requiring normal
+Terraform plan/review/deploy.
+
+========================================================
+STEP 11 - SAFETY
+========================================================
+
+DO NOT:
+
+- delete the Function App
+- recreate the Function App
+- modify the VNet
+- modify the delegated subnet
+- remove AppServiceLink
+- create legionServiceLink
+- switch to Flex Consumption
+- switch to FC1
+- switch to P1v4
+- modify private endpoints unnecessarily
+- modify Storage Account networking
+- delete Storage data
+- expose secrets
+- configure deployment manually through Azure Deployment Center
+- create duplicate GitHub workflows
+- automatically deploy production
+
+========================================================
+STEP 12 - VALIDATION
+========================================================
+
+Before considering the work complete:
+
+Validate the deployment workflow YAML.
+
+Validate Python imports.
+
+Validate requirements.txt.
+
+Validate host.json.
+
+Validate Function discovery structure.
+
+Validate Azure authentication configuration.
+
+Validate Function App name.
+
+Validate Resource Group.
+
+Validate Python 3.12.
+
+Validate managed identity configuration.
+
+Validate Key Vault references/access.
+
+Validate Storage RBAC.
+
+Validate that the application deployment workflow contains NO terraform
+apply command.
+
+Validate that infrastructure workflow and application workflow remain independent.
+
+========================================================
+EXPECTED FINAL OUTPUT
+========================================================
+
+Do NOT deploy immediately.
+
+First show me:
+
+1. Existing repository structure relevant to the Function App.
+2. Existing Python Function entry point(s).
+3. Existing infrastructure workflow(s).
+4. Existing application deployment workflow(s), if any.
+5. Files you propose to add/change.
+6. GitHub variables required.
+7. GitHub secrets required.
+8. Azure Key Vault secrets required.
+9. Function App settings required.
+10. Exact deployment workflow.
+11. Authentication method being reused.
+12. Package/deployment method.
+13. Post-deployment validation.
+14. Any Terraform change required separately, such as always_on=true.
+15. Confirmation that no existing working infrastructure/network resources
+    will be recreated or modified.
+
+IMPORTANT:
+
+Do not run terraform apply.
+Do not deploy application code yet.
+
+Prepare the changes for review first.
