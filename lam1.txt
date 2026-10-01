@@ -1,0 +1,253 @@
+I have an existing AWS Lambda written in Python that is already working.
+
+Current flow:
+
+S3 → SQS → Lambda → Confluence
+
+S3 structure:
+
+sox-reports/
+  2026/
+    <report-folder-1>/
+      <report-files>
+    <report-folder-2>/
+      <report-files>
+
+Example:
+
+sox-reports/
+  2026/
+    User-Access-Review/
+      user_access_review.xlsx
+    Change-Management/
+      change_management.pdf
+    Privileged-Access/
+      privileged_access.xlsx
+
+CURRENT BEHAVIOR:
+- When a new file is uploaded anywhere under `sox-reports/`, S3 sends the event through SQS.
+- The existing Lambda processes the SQS message.
+- It extracts the S3 object details.
+- It already creates/generates the required file link.
+- It already connects to Confluence and adds the file/link information.
+- This existing functionality is working and must not be broken.
+
+NEW REQUIREMENT:
+
+Modify the existing Lambda so that Confluence pages follow the S3 folder hierarchy.
+
+Expected Confluence hierarchy:
+
+SOX Reports
+  └── 2026
+       ├── User Access Review
+       │    └── File details/link
+       ├── Change Management
+       │    └── File details/link
+       └── Privileged Access
+            └── File details/link
+
+The existing main/root Confluence page is `SOX Reports`.
+
+IMPLEMENTATION REQUIREMENTS:
+
+1. Do NOT redesign the existing S3 → SQS → Lambda architecture.
+
+2. Do NOT create another Lambda.
+
+3. Reuse the existing Lambda, existing SQS event handling, existing authentication, existing Confluence connection, and existing file-link generation logic.
+
+4. From the S3 object key, dynamically extract:
+   - root folder
+   - year
+   - report folder
+   - file name
+
+Example:
+
+`sox-reports/2026/User-Access-Review/user_access_review.xlsx`
+
+should produce:
+
+root_folder = "sox-reports"
+year = "2026"
+report_name = "User-Access-Review"
+file_name = "user_access_review.xlsx"
+
+Do not hardcode 2026 or report names.
+
+5. YEAR PAGE LOGIC
+
+Under the existing `SOX Reports` Confluence page:
+
+Check whether a child page for the extracted year already exists.
+
+Example:
+
+SOX Reports
+  └── 2026
+
+If the `2026` page exists:
+- reuse its Confluence page ID.
+
+If it does not exist:
+- create `2026` as a child page under `SOX Reports`.
+- return the newly created page ID.
+
+The same logic must automatically work for future years such as 2027, 2028, etc.
+
+6. REPORT PAGE LOGIC
+
+After obtaining the year page ID, check whether a child page matching the report folder already exists under that specific year page.
+
+Example:
+
+SOX Reports
+  └── 2026
+       └── User Access Review
+
+If the report page exists:
+- reuse the existing page ID.
+
+If it does not exist:
+- create the report page as a child of the year page.
+
+Important:
+Search for the report page specifically under the correct year parent so that reports with the same name in different years do not conflict.
+
+7. PAGE NAME FORMATTING
+
+Convert S3-friendly folder names into readable Confluence page titles where appropriate.
+
+Example:
+
+`User-Access-Review`
+
+can become:
+
+`User Access Review`
+
+Do not change the actual S3 key.
+
+8. FILE LINK UPDATE
+
+After getting the report page ID, use the existing working logic to add/update the new file information and link on that report page.
+
+For example:
+
+SOX Reports
+  └── 2026
+       └── User Access Review
+             ├── user_access_review.xlsx
+             └── existing generated/download link
+
+Do not replace the existing file-link generation mechanism unless required.
+
+9. MULTIPLE FILES
+
+If multiple files are uploaded into the same report folder, do NOT create multiple report pages.
+
+Example:
+
+sox-reports/2026/User-Access-Review/report1.xlsx
+sox-reports/2026/User-Access-Review/report2.xlsx
+
+should result in:
+
+SOX Reports
+  └── 2026
+       └── User Access Review
+             ├── report1.xlsx
+             └── report2.xlsx
+
+10. IDEMPOTENCY
+
+The implementation must be idempotent.
+
+Repeated SQS messages or Lambda retries must not create duplicate:
+- year pages
+- report pages
+- file entries, where the existing implementation already supports duplicate handling
+
+Use a get-or-create pattern.
+
+Suggested functions:
+
+- parse_s3_key(s3_key)
+- get_or_create_year_page(root_page_id, year)
+- get_or_create_report_page(year_page_id, report_name)
+- find_child_page(parent_page_id, title)
+- create_child_page(parent_page_id, title)
+
+Reuse existing Confluence helper functions where possible rather than duplicating functionality.
+
+11. ERROR HANDLING
+
+Handle:
+- malformed S3 keys
+- missing year
+- missing report folder
+- Confluence page lookup failure
+- Confluence page creation failure
+- API timeout/error
+- duplicate page/race conditions
+- SQS/Lambda retries
+
+Log useful information such as:
+- S3 key
+- extracted year
+- extracted report name
+- year page ID
+- report page ID
+- whether a page was found or created
+
+Do not log passwords, API tokens, secrets, or sensitive authentication information.
+
+12. BACKWARD COMPATIBILITY
+
+This is very important.
+
+Review the existing code first before making changes.
+
+Preserve:
+- existing SQS processing
+- existing S3 processing
+- existing authentication
+- existing Confluence configuration
+- existing file-link generation
+- existing environment variables
+- existing logging/error handling where appropriate
+
+Make the minimum necessary code changes.
+
+Before modifying the code:
+1. Explain the current flow based on the existing source code.
+2. Identify exactly which functions/files need modification.
+3. Explain the proposed changes.
+4. Then implement the changes.
+
+After implementation:
+1. Show all files modified.
+2. Explain each change.
+3. Show the final flow.
+4. Provide example processing for:
+
+`sox-reports/2026/User-Access-Review/user_access_review.xlsx`
+
+Expected result:
+
+SQS event
+  ↓
+Lambda
+  ↓
+Extract year = 2026
+  ↓
+Extract report = User-Access-Review
+  ↓
+Find/Create "2026" under "SOX Reports"
+  ↓
+Find/Create "User Access Review" under "2026"
+  ↓
+Use existing logic to add the file link/details to that report page
+
+Do not make unrelated refactoring or architecture changes.
