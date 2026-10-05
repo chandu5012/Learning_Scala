@@ -1,0 +1,1334 @@
+FIX ONLY THE CONFLUENCE HIERARCHY LOOKUP/CREATION LOGIC.
+
+The current implementation is not correctly identifying folders.
+
+The most important rule is:
+
+EVERY folder must be identified by:
+
+    immediate_parent_id + folder_name
+
+NEVER identify a folder using:
+
+    folder_name only
+
+NEVER use:
+
+    space_id + folder_name
+
+NEVER search the complete Confluence space and take the first folder
+matching the name.
+
+============================================================
+INPUT
+============================================================
+
+Configured Confluence root:
+
+ROOT_PARENT_ID = <existing configured parent ID>
+
+S3 key example:
+
+sox-reports/2026/Snowflake/ITGC02/report1.csv
+
+Parse this as:
+
+year        = "2026"
+source      = "Snowflake"
+report_type = "ITGC02"
+file_name   = "report1.csv"
+
+Required hierarchy:
+
+ROOT_PARENT_ID
+    └── 2026
+         └── Snowflake
+              └── ITGC02
+                   └── Report Details
+
+============================================================
+CORE RULE
+============================================================
+
+The folder path must be resolved ONE LEVEL AT A TIME.
+
+Never try to resolve:
+
+2026/Snowflake/ITGC02
+
+in one global search.
+
+The algorithm MUST be:
+
+ROOT_PARENT_ID
+       +
+     "2026"
+       ↓
+ YEAR_FOLDER_ID
+       +
+   "Snowflake"
+       ↓
+SOURCE_FOLDER_ID
+       +
+    "ITGC02"
+       ↓
+REPORT_TYPE_FOLDER_ID
+
+Every returned folder ID becomes the parent ID for the NEXT lookup.
+
+============================================================
+EXACT LOGIC
+============================================================
+
+Start:
+
+current_parent_id = ROOT_PARENT_ID
+
+
+------------------------------------------------------------
+LEVEL 1: YEAR
+------------------------------------------------------------
+
+Need folder:
+
+2026
+
+Lookup combination MUST be:
+
+(parent_id = ROOT_PARENT_ID,
+ folder_name = "2026")
+
+Conceptually:
+
+year_folder = find_folder_under_parent(
+    parent_id=ROOT_PARENT_ID,
+    folder_name="2026"
+)
+
+IMPORTANT:
+
+Only inspect DIRECT CHILDREN of ROOT_PARENT_ID.
+
+Do not search the whole VDP space for "2026".
+
+
+IF FOUND:
+
+    year_folder_id = existing folder ID
+
+    DO NOT create anything.
+
+IF NOT FOUND:
+
+    create folder using:
+
+        parent_id = ROOT_PARENT_ID
+        folder_name = "2026"
+
+    Example:
+
+        create_folder(
+            parent_id=ROOT_PARENT_ID,
+            folder_name="2026"
+        )
+
+    The create API response will return the new folder ID.
+
+    year_folder_id = created_folder.id
+
+
+CRITICAL:
+
+After creating 2026, DO NOT continue using ROOT_PARENT_ID.
+
+From this point onward:
+
+    current_parent_id = year_folder_id
+
+
+------------------------------------------------------------
+LEVEL 2: SOURCE
+------------------------------------------------------------
+
+Need folder:
+
+Snowflake
+
+Now the lookup combination MUST be:
+
+(parent_id = year_folder_id,
+ folder_name = "Snowflake")
+
+NOT:
+
+(ROOT_PARENT_ID, "Snowflake")
+
+NOT:
+
+(space_id, "Snowflake")
+
+NOT:
+
+global search "Snowflake")
+
+
+Conceptually:
+
+source_folder = find_folder_under_parent(
+    parent_id=year_folder_id,
+    folder_name="Snowflake"
+)
+
+
+IF FOUND:
+
+    source_folder_id = existing folder ID
+
+
+IF NOT FOUND:
+
+    create:
+
+        create_folder(
+            parent_id=year_folder_id,
+            folder_name="Snowflake"
+        )
+
+    source_folder_id = created_folder.id
+
+
+CRITICAL:
+
+After Snowflake is found OR created:
+
+    current_parent_id = source_folder_id
+
+
+------------------------------------------------------------
+LEVEL 3: REPORT TYPE
+------------------------------------------------------------
+
+Need folder:
+
+ITGC02
+
+Lookup combination MUST now be:
+
+(parent_id = source_folder_id,
+ folder_name = "ITGC02")
+
+
+Conceptually:
+
+report_type_folder = find_folder_under_parent(
+    parent_id=source_folder_id,
+    folder_name="ITGC02"
+)
+
+
+IF FOUND:
+
+    report_type_folder_id = existing folder ID
+
+
+IF NOT FOUND:
+
+    create:
+
+        create_folder(
+            parent_id=source_folder_id,
+            folder_name="ITGC02"
+        )
+
+    report_type_folder_id = created_folder.id
+
+
+After this:
+
+    current_parent_id = report_type_folder_id
+
+
+------------------------------------------------------------
+LEVEL 4: REPORT DETAILS PAGE
+------------------------------------------------------------
+
+Now search for PAGE:
+
+Report Details
+
+The lookup combination MUST be:
+
+(parent_id = report_type_folder_id,
+ page_title = "Report Details")
+
+Search ONLY direct children of:
+
+report_type_folder_id
+
+
+IF Report Details page exists:
+
+    report_details_page_id = existing page ID
+
+    retrieve page
+    retrieve current page version
+    retrieve existing table
+
+    if current S3 file is not already in table:
+        append new table row
+        update same page
+
+
+IF Report Details does NOT exist:
+
+    create PAGE:
+
+        title = "Report Details"
+        parent_id = report_type_folder_id
+
+    Add initial output table.
+    Add current report/file as first row.
+
+============================================================
+MOST IMPORTANT: NOT-FOUND BEHAVIOR
+============================================================
+
+This is where the current implementation must be fixed.
+
+When a folder is NOT FOUND, do NOT change the parent.
+
+Create the missing folder under the SAME parent that was used
+for the lookup.
+
+Example:
+
+Searching:
+
+(parent_id=100, folder="2026")
+
+NOT FOUND
+
+Then create:
+
+(parent_id=100, folder="2026")
+
+Suppose API returns:
+
+folder_id=200
+
+NEXT lookup MUST become:
+
+(parent_id=200, folder="Snowflake")
+
+
+If Snowflake is NOT FOUND:
+
+Create:
+
+(parent_id=200, folder="Snowflake")
+
+Suppose API returns:
+
+folder_id=300
+
+NEXT lookup:
+
+(parent_id=300, folder="ITGC02")
+
+
+If ITGC02 is NOT FOUND:
+
+Create:
+
+(parent_id=300, folder="ITGC02")
+
+Suppose API returns:
+
+folder_id=400
+
+Then Report Details must be searched/created using:
+
+parent_id=400
+
+
+Therefore:
+
+LOOKUP PARENT
+      ↓
+NOT FOUND
+      ↓
+CREATE USING SAME PARENT
+      ↓
+GET NEW CHILD ID
+      ↓
+NEW CHILD ID BECOMES NEXT PARENT
+
+
+============================================================
+EXAMPLE WITH IDs
+============================================================
+
+Assume:
+
+ROOT_PARENT_ID = 1000
+
+S3:
+
+sox-reports/2026/Snowflake/ITGC02/report.csv
+
+
+STEP 1:
+
+Lookup:
+
+parent_id = 1000
+folder    = 2026
+
+Suppose not found.
+
+Create:
+
+parent_id = 1000
+folder    = 2026
+
+API returns:
+
+2026 folder ID = 2000
+
+
+STEP 2:
+
+Lookup:
+
+parent_id = 2000
+folder    = Snowflake
+
+Suppose Snowflake exists:
+
+Snowflake folder ID = 3000
+
+
+STEP 3:
+
+Lookup:
+
+parent_id = 3000
+folder    = ITGC02
+
+Suppose not found.
+
+Create:
+
+parent_id = 3000
+folder    = ITGC02
+
+API returns:
+
+ITGC02 folder ID = 4000
+
+
+STEP 4:
+
+Lookup:
+
+parent_id = 4000
+page      = Report Details
+
+Suppose not found.
+
+Create:
+
+parent_id = 4000
+title     = Report Details
+
+Suppose page ID returned = 5000.
+
+
+FINAL:
+
+1000
+└── 2000 = 2026
+     └── 3000 = Snowflake
+          └── 4000 = ITGC02
+               └── 5000 = Report Details
+
+
+THIS ID CHAIN IS MANDATORY.
+
+============================================================
+WHY PARENT ID IS REQUIRED
+============================================================
+
+The same folder name can exist under different parents.
+
+Example:
+
+ROOT ID = 1000
+
+1000
+├── SOX
+│    └── 2026
+│
+└── Other Reports
+     └── 2026
+
+Both folders are called:
+
+2026
+
+Therefore searching only:
+
+folder_name = "2026"
+
+is INVALID.
+
+Correct identity is:
+
+(parent_id, folder_name)
+
+
+Example:
+
+(SOX_FOLDER_ID, "2026")
+
+is different from:
+
+(OTHER_REPORTS_FOLDER_ID, "2026")
+
+
+Same applies to:
+
+Snowflake
+
+ITGC02
+
+and every other folder.
+
+============================================================
+IMPLEMENT THIS FUNCTION
+============================================================
+
+Create/fix ONE reusable function:
+
+get_or_create_folder(parent_id, folder_name)
+
+
+Required behavior:
+
+def get_or_create_folder(parent_id, folder_name):
+
+    # 1. Search DIRECT CHILDREN of parent_id
+    folder = find_direct_child_folder(
+        parent_id=parent_id,
+        folder_name=folder_name
+    )
+
+    # 2. Existing
+    if folder is not None:
+
+        log(
+            "FOUND",
+            parent_id,
+            folder_name,
+            folder.id
+        )
+
+        return folder.id
+
+    # 3. Missing
+    log(
+        "NOT FOUND",
+        parent_id,
+        folder_name
+    )
+
+    # IMPORTANT:
+    # use EXACT SAME parent_id
+
+    folder = create_folder(
+        parent_id=parent_id,
+        folder_name=folder_name
+    )
+
+    log(
+        "CREATED",
+        parent_id,
+        folder_name,
+        folder.id
+    )
+
+    # Return CHILD ID, not original parent ID
+    return folder.id
+
+
+============================================================
+THEN BUILD HIERARCHY EXACTLY LIKE THIS
+============================================================
+
+year_folder_id = get_or_create_folder(
+    ROOT_PARENT_ID,
+    year
+)
+
+source_folder_id = get_or_create_folder(
+    year_folder_id,
+    source
+)
+
+report_type_folder_id = get_or_create_folder(
+    source_folder_id,
+    report_type
+)
+
+report_details_page_id = get_or_create_report_details_page(
+    report_type_folder_id
+)
+
+
+DO NOT change this parent chaining.
+
+============================================================
+BETTER GENERIC IMPLEMENTATION
+============================================================
+
+Prefer making the hierarchy generic.
+
+After parsing S3:
+
+folder_levels = [
+    year,
+    source,
+    report_type
+]
+
+current_parent_id = ROOT_PARENT_ID
+
+for folder_name in folder_levels:
+
+    current_parent_id = get_or_create_folder(
+        parent_id=current_parent_id,
+        folder_name=folder_name
+    )
+
+After loop:
+
+report_type_folder_id = current_parent_id
+
+
+Then:
+
+report_details_page_id = get_or_create_report_details_page(
+    parent_id=report_type_folder_id
+)
+
+
+This guarantees every level uses the ID returned from the
+previous level.
+
+============================================================
+VERY IMPORTANT API LOOKUP REQUIREMENT
+============================================================
+
+Inspect the existing Confluence API.
+
+If the Confluence API being used does NOT provide a direct endpoint like:
+
+find folder where parentId=X and title=Y
+
+then:
+
+1. Retrieve/list the DIRECT CHILDREN of parent_id.
+2. Handle pagination.
+3. Iterate through those direct children.
+4. Check content type is FOLDER.
+5. Compare folder name/title exactly.
+6. Return its ID.
+
+Pseudo:
+
+def find_direct_child_folder(parent_id, folder_name):
+
+    for child in get_all_direct_children(parent_id):
+
+        if (
+            child.type == "folder"
+            and child.parent_id == parent_id
+            and child.title == folder_name
+        ):
+            return child
+
+    return None
+
+
+Do NOT replace this with global CQL/search just because it is easier.
+
+If existing code uses global Confluence search, remove that behavior
+for hierarchy resolution.
+
+============================================================
+EXACT MATCHING
+============================================================
+
+When checking a folder:
+
+parent_id must match the expected immediate parent.
+
+content type must be folder.
+
+folder name/title must exactly match expected folder name.
+
+Do not use partial matching.
+
+For example:
+
+Searching for:
+
+ITGC02
+
+must NOT match:
+
+ITGC020
+ITGC02-old
+Test-ITGC02
+
+
+============================================================
+FOLDER VS PAGE
+============================================================
+
+YEAR:
+Confluence FOLDER
+
+SOURCE:
+Confluence FOLDER
+
+REPORT_TYPE:
+Confluence FOLDER
+
+Report Details:
+Confluence PAGE
+
+
+Do not use the page lookup function to find YEAR/SOURCE/REPORT_TYPE.
+
+Do not use folder lookup to find Report Details.
+
+============================================================
+EXPECTED PROCESS FOR EXISTING FOLDERS
+============================================================
+
+Suppose Confluence already contains:
+
+ROOT_PARENT_ID=1000
+
+1000
+└── 2026 [ID=2000]
+     └── Snowflake [ID=3000]
+          └── ITGC02 [ID=4000]
+
+
+Processing:
+
+sox-reports/2026/Snowflake/ITGC02/new.csv
+
+must produce:
+
+get_or_create_folder(1000, "2026")
+    -> return 2000
+
+get_or_create_folder(2000, "Snowflake")
+    -> return 3000
+
+get_or_create_folder(3000, "ITGC02")
+    -> return 4000
+
+Then:
+
+find/create Report Details under 4000.
+
+
+NO folders should be created.
+
+============================================================
+EXPECTED PROCESS WHEN SOME FOLDERS ARE MISSING
+============================================================
+
+Suppose:
+
+1000
+└── 2026 [ID=2000]
+
+Snowflake does not exist.
+
+Process:
+
+get_or_create_folder(1000, "2026")
+    -> FOUND
+    -> 2000
+
+get_or_create_folder(2000, "Snowflake")
+    -> NOT FOUND
+    -> CREATE UNDER 2000
+    -> API returns 3000
+
+get_or_create_folder(3000, "ITGC02")
+    -> NOT FOUND
+    -> CREATE UNDER 3000
+    -> API returns 4000
+
+Then:
+
+create/find Report Details under 4000.
+
+
+Final:
+
+1000
+└── 2026 [2000]
+     └── Snowflake [3000]
+          └── ITGC02 [4000]
+               └── Report Details
+
+
+============================================================
+DO NOT USE FALLBACK PARENTS
+============================================================
+
+Do NOT do something like:
+
+if 2026 not found:
+    use ROOT_PARENT_ID for Snowflake
+
+WRONG.
+
+If 2026 is missing:
+
+CREATE 2026 first.
+
+Then use the newly created 2026 ID as the Snowflake parent.
+
+
+Similarly:
+
+If Snowflake is missing:
+
+CREATE Snowflake first.
+
+Then use newly created Snowflake ID as ITGC02 parent.
+
+
+There must never be a hierarchy like:
+
+ROOT_PARENT_ID
+├── 2026
+├── Snowflake
+└── ITGC02
+
+That is WRONG.
+
+It must always be:
+
+ROOT_PARENT_ID
+└── 2026
+     └── Snowflake
+          └── ITGC02
+
+
+============================================================
+LOG THE PARENT CHAIN
+============================================================
+
+Add logs before and after EVERY lookup/create.
+
+Example:
+
+[HIERARCHY]
+ROOT_PARENT_ID=1000
+
+[LOOKUP]
+parent_id=1000
+folder=2026
+
+[FOUND]
+parent_id=1000
+folder=2026
+folder_id=2000
+
+[LOOKUP]
+parent_id=2000
+folder=Snowflake
+
+[CREATED]
+parent_id=2000
+folder=Snowflake
+folder_id=3000
+
+[LOOKUP]
+parent_id=3000
+folder=ITGC02
+
+[CREATED]
+parent_id=3000
+folder=ITGC02
+folder_id=4000
+
+[FINAL HIERARCHY]
+1000 -> 2000 -> 3000 -> 4000
+
+[REPORT DETAILS]
+parent_id=4000
+
+
+These logs are required so we can verify that the correct parent ID
+is being passed at every level.
+
+============================================================
+FINAL INSTRUCTION
+============================================================
+
+Do not make unrelated changes.
+
+First locate the existing folder lookup function and folder creation
+function.
+
+Fix those functions so hierarchy resolution is based ONLY on:
+
+(parent_id + folder_name)
+
+Then make sure the ID returned from each lookup/create operation becomes
+the parent_id for the next folder.
+
+The core invariant throughout the code MUST be:
+
+NEXT_PARENT_ID = CURRENT_FOLDER_ID
+
+For:
+
+sox-reports/2026/Snowflake/ITGC02/file.csv
+
+the exact chain MUST be:
+
+ROOT_PARENT_ID
+    +
+    2026
+        -> YEAR_FOLDER_ID
+
+YEAR_FOLDER_ID
+    +
+    Snowflake
+        -> SOURCE_FOLDER_ID
+
+SOURCE_FOLDER_ID
+    +
+    ITGC02
+        -> REPORT_TYPE_FOLDER_ID
+
+REPORT_TYPE_FOLDER_ID
+    +
+    Report Details
+        -> REPORT_DETAILS_PAGE_ID
+
+Do not provide a theoretical solution only.
+
+Inspect the existing code and modify the actual implementation to follow
+this exact parent-child ID chain.
+
+
+
+============================================================
+CRITICAL: YEAR IS DYNAMIC
+============================================================
+
+YEAR is completely dynamic.
+
+DO NOT hard-code:
+
+2026
+
+DO NOT use:
+
+datetime.now().year
+
+DO NOT use the current Lambda execution year.
+
+The YEAR must ALWAYS be extracted from the S3 object key.
+
+Examples:
+
+S3:
+sox-reports/2026/Snowflake/ITGC02/report.csv
+
+Extract:
+
+year = "2026"
+
+
+S3:
+sox-reports/2027/Snowflake/ITGC02/report.csv
+
+Extract:
+
+year = "2027"
+
+
+S3:
+sox-reports/2025/AWS/ITGC03/report.csv
+
+Extract:
+
+year = "2025"
+
+
+Therefore the folder hierarchy is completely dynamic:
+
+ROOT_PARENT_ID
+    └── <YEAR>
+         └── <SOURCE>
+              └── <REPORT_TYPE>
+                   └── Report Details
+
+
+============================================================
+DYNAMIC S3 KEY PARSING
+============================================================
+
+Expected S3 pattern:
+
+sox-reports/<YEAR>/<SOURCE>/<REPORT_TYPE>/<FILE>
+
+Example:
+
+sox-reports/2026/Snowflake/ITGC02/report.csv
+
+Parse dynamically:
+
+parts = parsed_s3_key.split("/")
+
+year        = parts[1]
+source      = parts[2]
+report_type = parts[3]
+file_name   = parts[4]
+
+Do not assume these literal values:
+
+2026
+Snowflake
+ITGC02
+
+They are examples only.
+
+Validate YEAR as a 4-digit year.
+
+============================================================
+PARENT-ID COMBINATION RULE
+============================================================
+
+EVERY folder must be identified using:
+
+    immediate_parent_id + dynamic_folder_name
+
+The complete dynamic chain is:
+
+(ROOT_PARENT_ID + YEAR)
+        ↓
+YEAR_FOLDER_ID
+
+(YEAR_FOLDER_ID + SOURCE)
+        ↓
+SOURCE_FOLDER_ID
+
+(SOURCE_FOLDER_ID + REPORT_TYPE)
+        ↓
+REPORT_TYPE_FOLDER_ID
+
+(REPORT_TYPE_FOLDER_ID + "Report Details")
+        ↓
+REPORT_DETAILS_PAGE_ID
+
+
+For example:
+
+S3:
+sox-reports/2026/Snowflake/ITGC02/report.csv
+
+could resolve as:
+
+(ROOT_PARENT_ID=1000 + "2026")
+        -> folder_id=2000
+
+(2000 + "Snowflake")
+        -> folder_id=3000
+
+(3000 + "ITGC02")
+        -> folder_id=4000
+
+(4000 + "Report Details")
+        -> page_id=5000
+
+
+But another S3 object:
+
+sox-reports/2027/AWS/ITGC05/report.csv
+
+must dynamically resolve as:
+
+(ROOT_PARENT_ID=1000 + "2027")
+        -> YEAR_FOLDER_ID
+
+(YEAR_FOLDER_ID + "AWS")
+        -> SOURCE_FOLDER_ID
+
+(SOURCE_FOLDER_ID + "ITGC05")
+        -> REPORT_TYPE_FOLDER_ID
+
+(REPORT_TYPE_FOLDER_ID + "Report Details")
+        -> REPORT_DETAILS_PAGE_ID
+
+
+============================================================
+IF DYNAMIC YEAR FOLDER DOES NOT EXIST
+============================================================
+
+This behavior is mandatory.
+
+Suppose:
+
+ROOT_PARENT_ID = 1000
+
+S3 key:
+
+sox-reports/2027/Snowflake/ITGC02/report.csv
+
+Extract:
+
+year = "2027"
+
+First search ONLY under ROOT_PARENT_ID:
+
+find_direct_child_folder(
+    parent_id=1000,
+    folder_name="2027"
+)
+
+If 2027 EXISTS:
+
+    year_folder_id = existing 2027 folder ID
+
+If 2027 DOES NOT EXIST:
+
+    create_folder(
+        parent_id=1000,
+        folder_name="2027"
+    )
+
+Suppose the API returns:
+
+year_folder_id = 6000
+
+Now 6000 MUST become the parent for SOURCE.
+
+Next:
+
+find/create:
+
+    parent_id=6000
+    folder_name="Snowflake"
+
+Suppose returned:
+
+source_folder_id=7000
+
+Next:
+
+find/create:
+
+    parent_id=7000
+    folder_name="ITGC02"
+
+Suppose returned:
+
+report_type_folder_id=8000
+
+Finally:
+
+find/create Report Details page under:
+
+parent_id=8000
+
+
+Final hierarchy:
+
+1000
+└── 2027 [6000]
+     └── Snowflake [7000]
+          └── ITGC02 [8000]
+               └── Report Details
+
+
+============================================================
+GENERIC IMPLEMENTATION
+============================================================
+
+Do NOT write separate hard-coded logic specifically for 2026.
+
+The hierarchy must be generic.
+
+Use:
+
+folder_levels = [
+    year,
+    source,
+    report_type
+]
+
+current_parent_id = ROOT_PARENT_ID
+
+for folder_name in folder_levels:
+
+    current_parent_id = get_or_create_folder(
+        parent_id=current_parent_id,
+        folder_name=folder_name
+    )
+
+report_type_folder_id = current_parent_id
+
+Then:
+
+report_details_page_id = get_or_create_report_details_page(
+    parent_id=report_type_folder_id
+)
+
+
+The function must behave as:
+
+get_or_create_folder(parent_id, folder_name):
+
+    Search ONLY direct child folders of parent_id
+    for exact folder_name.
+
+    IF FOUND:
+        return existing folder ID
+
+    IF NOT FOUND:
+        create folder using SAME parent_id
+        return newly created folder ID
+
+
+The returned ID ALWAYS becomes the parent for the next level.
+
+
+============================================================
+EXAMPLES ACROSS MULTIPLE YEARS
+============================================================
+
+If these S3 objects arrive:
+
+sox-reports/2025/Snowflake/ITGC02/a.csv
+sox-reports/2026/Snowflake/ITGC02/b.csv
+sox-reports/2026/AWS/ITGC03/c.csv
+sox-reports/2027/Snowflake/ITGC02/d.csv
+sox-reports/2028/Fivetran/ITGC05/e.csv
+
+Confluence must dynamically become:
+
+ROOT_PARENT_ID
+│
+├── 2025
+│    └── Snowflake
+│         └── ITGC02
+│              └── Report Details
+│
+├── 2026
+│    ├── Snowflake
+│    │    └── ITGC02
+│    │         └── Report Details
+│    │
+│    └── AWS
+│         └── ITGC03
+│              └── Report Details
+│
+├── 2027
+│    └── Snowflake
+│         └── ITGC02
+│              └── Report Details
+│
+└── 2028
+     └── Fivetran
+          └── ITGC05
+               └── Report Details
+
+
+============================================================
+ABSOLUTE RULES - DO NOT DEVIATE
+============================================================
+
+1. YEAR is DYNAMIC and comes from the S3 key.
+
+2. Never hard-code 2026.
+
+3. Never calculate YEAR from the current system date.
+
+4. SOURCE is dynamic and comes from the S3 key.
+
+5. REPORT_TYPE is dynamic and comes from the S3 key.
+
+6. Every folder lookup must use:
+
+       immediate_parent_id + folder_name
+
+7. Never globally search the Confluence space for a folder.
+
+8. If a folder exists under the expected parent:
+       reuse its ID.
+
+9. If a folder does NOT exist:
+       create it under the SAME parent ID used for lookup.
+
+10. After find/create:
+       returned folder ID becomes parent_id for next level.
+
+11. YEAR, SOURCE and REPORT_TYPE are Confluence FOLDERS.
+
+12. "Report Details" is a Confluence PAGE.
+
+13. Only ONE Report Details page should exist directly under each
+    REPORT_TYPE folder.
+
+14. Multiple files belonging to the same
+    YEAR/SOURCE/REPORT_TYPE must append rows to the same Report Details page.
+
+15. The core invariant is ALWAYS:
+
+       NEXT_PARENT_ID = CURRENT_FOLDER_ID
+
+
+For every S3 key:
+
+sox-reports/<YEAR>/<SOURCE>/<REPORT_TYPE>/<FILE>
+
+the implementation MUST dynamically perform:
+
+ROOT_PARENT_ID + <YEAR>
+        ↓
+YEAR_FOLDER_ID
+
+YEAR_FOLDER_ID + <SOURCE>
+        ↓
+SOURCE_FOLDER_ID
+
+SOURCE_FOLDER_ID + <REPORT_TYPE>
+        ↓
+REPORT_TYPE_FOLDER_ID
+
+REPORT_TYPE_FOLDER_ID + "Report Details"
+        ↓
+REPORT_DETAILS_PAGE_ID
+
+Do not implement any global folder-name lookup anywhere in this hierarchy.
+
+
+IMPORTANT: YEAR, SOURCE and REPORT_TYPE are all dynamic values extracted
+from the S3 key. YEAR must never be hard-coded as 2026 or derived from the
+current date. Every folder must be resolved using
+(immediate_parent_id + dynamic_folder_name), and the returned folder ID
+must become the parent ID for the next hierarchy level.
