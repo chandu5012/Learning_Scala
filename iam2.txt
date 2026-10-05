@@ -1,0 +1,536 @@
+============================================================
+REPORT DETAILS PAGE AND OUTPUT TABLE
+============================================================
+
+After creating/finding the hierarchy:
+
+ROOT_PARENT_ID/<YEAR>/<SOURCE>/<REPORT_TYPE>
+
+do NOT create a separate Confluence page for every file.
+
+Instead, under each REPORT_TYPE folder, maintain ONE Confluence page named:
+
+Report Details
+
+Example S3 object:
+
+sox-reports/2026/Snowflake/ITGC02/report1.csv
+
+Required Confluence structure:
+
+ROOT_PARENT_ID
+└── 📁 2026
+     └── 📁 Snowflake
+          └── 📁 ITGC02
+               └── 📄 Report Details
+                    └── Output table containing report/file details
+
+For another file:
+
+sox-reports/2026/Snowflake/ITGC02/report2.csv
+
+DO NOT create another "Report Details" page.
+
+Instead:
+
+1. Find the existing "Report Details" page directly under the ITGC02 folder.
+2. Read the existing page content.
+3. Append a new row to the existing output table.
+4. Update the same Confluence page.
+
+Expected result:
+
+📁 ITGC02
+   └── 📄 Report Details
+
+       | File Name   | Source    | Report Type | Year | File Link |
+       |-------------|-----------|-------------|------|-----------|
+       | report1.csv | Snowflake | ITGC02      | 2026 | Download  |
+       | report2.csv | Snowflake | ITGC02      | 2026 | Download  |
+       | report3.csv | Snowflake | ITGC02      | 2026 | Download  |
+
+The File Link column must contain the existing generated S3/download link
+using the application's current link-generation logic.
+
+If the existing application has additional output fields/columns, preserve
+them and add the new row using the same table structure.
+
+============================================================
+REPORT DETAILS PAGE LOGIC
+============================================================
+
+After obtaining:
+
+report_type_folder_id
+
+execute:
+
+get_or_create_report_details_page(report_type_folder_id)
+
+IMPORTANT:
+
+Search for "Report Details" ONLY under report_type_folder_id.
+
+Do NOT search globally for a page named "Report Details".
+
+There can be many pages with the same name:
+
+2026/Snowflake/ITGC02/Report Details
+2026/Snowflake/ITGC03/Report Details
+2026/AWS/ITGC02/Report Details
+2027/Snowflake/ITGC02/Report Details
+
+These are separate pages because they belong to different parent folders.
+
+The logical identity is:
+
+report_type_folder_id + "Report Details"
+
+============================================================
+FIRST FILE
+============================================================
+
+Example:
+
+sox-reports/2026/Snowflake/ITGC02/report1.csv
+
+If the hierarchy does not exist:
+
+1. Find/create 2026 under ROOT_PARENT_ID.
+2. Find/create Snowflake under the 2026 folder.
+3. Find/create ITGC02 under the Snowflake folder.
+4. Check for a page named "Report Details" directly under ITGC02.
+5. If "Report Details" does NOT exist:
+   - Create a normal Confluence PAGE named "Report Details".
+   - Parent must be ITGC02 folder ID.
+   - Create the output table.
+   - Add report1.csv as the first data row.
+   - Include the generated file/download link.
+6. Capture and log the Report Details page ID.
+
+Result:
+
+ROOT_PARENT_ID
+└── 📁 2026
+     └── 📁 Snowflake
+          └── 📁 ITGC02
+               └── 📄 Report Details
+                    |
+                    | File Name   | Source    | Report Type | Year | File Link |
+                    | report1.csv | Snowflake | ITGC02      | 2026 | Download  |
+
+============================================================
+SECOND AND SUBSEQUENT FILES
+============================================================
+
+Suppose later this file arrives:
+
+sox-reports/2026/Snowflake/ITGC02/report2.csv
+
+The code must:
+
+1. Find existing 2026.
+2. Find existing Snowflake.
+3. Find existing ITGC02.
+4. Find existing "Report Details" page under ITGC02.
+5. DO NOT create another Report Details page.
+6. Retrieve the existing Report Details page content.
+7. Retrieve the current Confluence page version.
+8. Append a new row for report2.csv to the EXISTING table.
+9. Preserve all existing rows.
+10. Update the same Report Details page using the next required Confluence
+    page version.
+
+Expected result:
+
+| File Name   | Source    | Report Type | Year | File Link |
+|-------------|-----------|-------------|------|-----------|
+| report1.csv | Snowflake | ITGC02      | 2026 | Download  |
+| report2.csv | Snowflake | ITGC02      | 2026 | Download  |
+
+Never overwrite/remove report1.csv when adding report2.csv.
+
+============================================================
+DIFFERENT REPORT TYPES
+============================================================
+
+Example:
+
+sox-reports/2026/Snowflake/ITGC03/report3.csv
+
+This must create/use:
+
+2026
+└── Snowflake
+     └── ITGC03
+          └── Report Details
+
+ITGC03 must have its OWN Report Details page.
+
+Do not append ITGC03 information to:
+
+2026/Snowflake/ITGC02/Report Details
+
+============================================================
+DIFFERENT SOURCES
+============================================================
+
+Example:
+
+sox-reports/2026/AWS/ITGC02/aws_report.csv
+
+This must use:
+
+2026
+└── AWS
+     └── ITGC02
+          └── Report Details
+
+It must NOT update:
+
+2026/Snowflake/ITGC02/Report Details
+
+Even though both report types are named ITGC02.
+
+============================================================
+DIFFERENT YEARS
+============================================================
+
+Example:
+
+sox-reports/2027/Snowflake/ITGC02/report.csv
+
+This must use:
+
+2027
+└── Snowflake
+     └── ITGC02
+          └── Report Details
+
+It must NOT update:
+
+2026/Snowflake/ITGC02/Report Details
+
+============================================================
+COMPLETE PROCESSING FLOW
+============================================================
+
+The complete processing flow must now be:
+
+S3 object:
+
+sox-reports/2026/Snowflake/ITGC02/report.csv
+
+        ↓
+
+Parse S3 key:
+
+year        = 2026
+source      = Snowflake
+report_type = ITGC02
+file_name   = report.csv
+
+        ↓
+
+Start with configured:
+
+ROOT_PARENT_ID
+
+        ↓
+
+get_or_create_folder(
+    ROOT_PARENT_ID,
+    "2026"
+)
+
+        ↓
+
+YEAR_FOLDER_ID
+
+        ↓
+
+get_or_create_folder(
+    YEAR_FOLDER_ID,
+    "Snowflake"
+)
+
+        ↓
+
+SOURCE_FOLDER_ID
+
+        ↓
+
+get_or_create_folder(
+    SOURCE_FOLDER_ID,
+    "ITGC02"
+)
+
+        ↓
+
+REPORT_TYPE_FOLDER_ID
+
+        ↓
+
+Find "Report Details" PAGE directly under REPORT_TYPE_FOLDER_ID
+
+        ↓
+
+IF PAGE DOES NOT EXIST:
+
+    Create:
+        Report Details
+
+    Create output table.
+
+    Add first file row.
+
+ELSE:
+
+    Retrieve existing Report Details page.
+
+    Retrieve existing table/content.
+
+    Retrieve current page version.
+
+    Check whether this exact file/report is already present.
+
+    If not present:
+        Append new row.
+        Preserve existing rows.
+        Increment page version as required by Confluence.
+        Update same page.
+
+        ↓
+
+FINAL:
+
+2026/Snowflake/ITGC02/Report Details
+                              ↓
+                         Output Table
+                              ↓
+                         File Link(s)
+
+============================================================
+DUPLICATE FILE / SQS RETRY HANDLING
+============================================================
+
+SQS/Lambda can process the same event more than once.
+
+Therefore the Report Details page update must also be idempotent.
+
+Example:
+
+Lambda receives:
+
+sox-reports/2026/Snowflake/ITGC02/report1.csv
+
+twice.
+
+Do NOT produce:
+
+| report1.csv | ... |
+| report1.csv | ... |
+
+Before appending a row, determine whether the same report/file has already
+been added.
+
+Prefer using a stable identifier such as:
+
+S3 bucket + complete S3 object key
+
+Example:
+
+bucket:
+vdp-sox-reports
+
+key:
+sox-reports/2026/Snowflake/ITGC02/report1.csv
+
+Logical unique report identifier:
+
+vdp-sox-reports +
+sox-reports/2026/Snowflake/ITGC02/report1.csv
+
+If this object is already represented on the Report Details page, do not
+append another row.
+
+Log:
+
+REPORT ALREADY EXISTS - skipping duplicate row
+
+If the same file name can be uploaded as a new version and the business
+requirement is to show every version, preserve version-specific metadata
+such as S3 version ID where available. Otherwise treat the same S3 object
+key as the same report.
+
+============================================================
+TABLE HANDLING
+============================================================
+
+Do not recreate the complete page blindly for every file.
+
+When Report Details already exists:
+
+1. GET the current page.
+2. Obtain the existing page body in the representation required by the
+   existing Confluence API.
+3. Obtain the current page version.
+4. Locate the existing report table.
+5. Preserve the header.
+6. Preserve all existing rows.
+7. Append the new row.
+8. Preserve other existing page content.
+9. Increment/update the Confluence page version correctly.
+10. PUT/update the existing page.
+
+Do not destroy other content that may already exist on Report Details.
+
+Use valid Confluence storage/ADF format according to the API already being
+used by this project.
+
+Do not assume HTML is accepted until the existing Confluence API
+implementation has been inspected.
+
+============================================================
+CONCURRENT PAGE UPDATES
+============================================================
+
+This is important because multiple S3/SQS events can execute simultaneously.
+
+Example:
+
+report1.csv
+report2.csv
+
+Two Lambda invocations may attempt to update the same:
+
+2026/Snowflake/ITGC02/Report Details
+
+at the same time.
+
+Do not allow one update to silently overwrite another.
+
+Use Confluence page versioning/conflict handling.
+
+If the update fails because the page version changed:
+
+1. Fetch the latest Report Details page again.
+2. Re-check whether the current file row already exists.
+3. If it does not exist, append it to the latest table.
+4. Retry the page update using the latest version.
+5. Use a bounded retry count.
+6. Do not retry indefinitely.
+
+============================================================
+REUSABLE FUNCTIONS
+============================================================
+
+Where appropriate, structure the code into reusable functions similar to:
+
+parse_s3_key(s3_key)
+
+get_or_create_folder(parent_id, folder_name)
+
+find_page_under_parent(parent_id, page_title)
+
+create_report_details_page(
+    parent_id,
+    report_metadata
+)
+
+get_report_details_page(page_id)
+
+report_already_exists(
+    page_content,
+    bucket,
+    s3_key
+)
+
+append_report_row(
+    page_content,
+    report_metadata
+)
+
+update_report_details_page(
+    page_id,
+    updated_content,
+    current_version
+)
+
+Do not create unnecessary abstractions if equivalent functions already
+exist in the project.
+
+============================================================
+EXPECTED FINAL STRUCTURE
+============================================================
+
+If these S3 files arrive:
+
+sox-reports/2026/Snowflake/ITGC02/report1.csv
+sox-reports/2026/Snowflake/ITGC02/report2.csv
+sox-reports/2026/Snowflake/ITGC03/report3.csv
+sox-reports/2026/AWS/ITGC02/report4.csv
+sox-reports/2027/Snowflake/ITGC02/report5.csv
+
+Confluence should become:
+
+ROOT_PARENT_ID
+│
+├── 📁 2026
+│    │
+│    ├── 📁 Snowflake
+│    │    │
+│    │    ├── 📁 ITGC02
+│    │    │    └── 📄 Report Details
+│    │    │         ├── report1.csv + link
+│    │    │         └── report2.csv + link
+│    │    │
+│    │    └── 📁 ITGC03
+│    │         └── 📄 Report Details
+│    │              └── report3.csv + link
+│    │
+│    └── 📁 AWS
+│         └── 📁 ITGC02
+│              └── 📄 Report Details
+│                   └── report4.csv + link
+│
+└── 📁 2027
+     └── 📁 Snowflake
+          └── 📁 ITGC02
+               └── 📄 Report Details
+                    └── report5.csv + link
+
+============================================================
+VERY IMPORTANT
+============================================================
+
+Folders:
+- YEAR = Confluence Folder
+- SOURCE = Confluence Folder
+- REPORT_TYPE = Confluence Folder
+
+Final content:
+- "Report Details" = Confluence PAGE
+
+Files must NOT each create their own Confluence page.
+
+All files belonging to the same:
+
+YEAR + SOURCE + REPORT_TYPE
+
+must be represented as rows in the ONE "Report Details" page directly
+under that REPORT_TYPE folder.
+
+Folder lookup uniqueness:
+
+parent_folder_id + folder_name
+
+Report Details page uniqueness:
+
+report_type_folder_id + "Report Details"
+
+File/report row uniqueness:
+
+S3 bucket + full S3 object key
+
+Preserve the existing working S3 download/file-link logic.
