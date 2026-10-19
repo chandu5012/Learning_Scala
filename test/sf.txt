@@ -1,0 +1,797 @@
+# MASTER DEVELOPMENT PROMPT
+## VDP Snowflake 360° — Enterprise Monitoring, Billing, FinOps & Optimization Dashboard
+
+### 1. Objective
+
+Develop a complete, production-quality, modular Snowflake 360° dashboard using **Python, Gradio, Plotly, Polars and Snowflake Connector**.
+
+The application must connect to real Snowflake accounts and provide comprehensive analysis of:
+
+- Billing, credits and cost consumption
+- Warehouses and compute utilization
+- Tasks and task execution history
+- Dynamic tables and refresh performance
+- Databases, schemas, tables and storage
+- Streams, Snowpipe and ingestion
+- Queries and query performance
+- Users, roles and security
+- Resource monitors and governance
+- Cost allocation by account, application, database, user and workload
+- FinOps optimization and recommendations
+- Snowflake warehouse consolidation
+- Failure analysis and operational health
+- Historical trends and forecasting
+- Complete Excel, CSV and PDF reports
+
+**Important:** This is NOT just a warehouse consolidation application. It must be a comprehensive Snowflake Administration, Monitoring, Billing and FinOps platform.
+
+All metrics must come from real Snowflake metadata, account usage views and billing sources.
+
+Do not use dummy data, mock results or hardcoded billing values in production mode.
+
+The initial implementation must be READ-ONLY.
+
+---
+
+### 2. Technology Stack
+
+Frontend:
+- Gradio Blocks with custom CSS
+- Plotly for interactive charts
+- Gradio Dataframe for detailed tables
+- Searchable filters and interactive drill-downs
+
+Backend:
+- Python 3.12+
+- Snowflake Python Connector
+- Polars for data processing
+- Pydantic for configuration validation
+- SQLAlchemy only where appropriate
+- Modular Python services
+- Background-safe execution and caching
+
+Reporting:
+- OpenPyXL for Excel
+- ReportLab for PDF
+- CSV exports
+- Plotly charts
+
+Configuration:
+- Environment variables
+- YAML-based configuration
+- Snowflake account configuration
+- Secure authentication using supported SSO or key-pair authentication
+
+Do not use pandas for application data processing.
+
+---
+
+### 3. Multi-Account Support
+
+Support multiple Snowflake accounts and environments:
+
+- DEV
+- QA
+- STG
+- PREPROD
+- PROD
+
+The dashboard must allow users to select one account, multiple accounts or all configured accounts.
+
+Include:
+
+- Account name
+- Organization name
+- Cloud provider
+- Snowflake region
+- Environment
+- Edition
+- Account status
+- Data collection timestamp
+
+Provide separate account-level and consolidated organization-level views.
+
+Do not combine credits and currency values incorrectly across accounts with different rates or billing arrangements.
+
+---
+
+### 4. Main Dashboard — Executive Overview
+
+Create a professional landing dashboard showing:
+
+**Object inventory**
+- Total warehouses
+- Running warehouses
+- Suspended warehouses
+- Total databases
+- Total schemas
+- Total tables
+- Total views
+- Total materialized views
+- Total dynamic tables
+- Total tasks
+- Enabled and suspended tasks
+- Total streams
+- Total pipes
+- Total users
+- Total roles
+- Total resource monitors
+
+**Operational metrics**
+- Total queries executed
+- Failed queries
+- Slow queries
+- Total task executions
+- Failed task executions
+- Dynamic table refresh counts
+- Failed dynamic table refreshes
+- Snowpipe ingestion errors
+- Average query execution time
+- Warehouse queueing
+
+**Billing metrics**
+- Total metered credits
+- Total estimated USD cost
+- Warehouse compute credits
+- Serverless task credits
+- Dynamic table refresh compute
+- Snowpipe credits
+- Storage cost
+- Other service costs
+- Previous-period comparison
+- Cost growth percentage
+
+All KPI cards must be clickable and open detailed analysis.
+
+Show the last successful data refresh time and source freshness.
+
+---
+
+### 5. Billing & FinOps — Highest Cost First
+
+**This is the most important module.**
+
+Build a complete billing intelligence dashboard.
+
+Every billing table and cost analysis must support sorting from highest cost to lowest cost by default.
+
+Show:
+
+1. Total cost by Snowflake account
+2. Total cost by environment
+3. Total cost by Snowflake service
+4. Total cost by warehouse
+5. Total cost by database
+6. Total cost by schema
+7. Total cost by table, where attribution is supported
+8. Total cost by task
+9. Total cost by dynamic table
+10. Total cost by user
+11. Total cost by service account
+12. Total cost by role
+13. Total cost by application
+14. Total cost by team
+15. Total cost by workload
+16. Total storage cost
+17. Total ingestion cost
+18. Total query-attributed cost
+19. Total serverless compute cost
+20. Total unallocated cost
+
+For every cost component display:
+
+- Rank
+- Component name
+- Component type
+- Account
+- Environment
+- Database
+- Schema
+- Warehouse, if applicable
+- Credits consumed
+- Estimated USD cost
+- Percentage of total bill
+- Previous-period cost
+- Cost increase/decrease
+- Execution or refresh count
+- Average duration
+- Failure count
+- Last execution timestamp
+- Owner
+- Application
+- Workload
+- Optimization recommendation
+
+**Critical requirement:**
+
+When the user clicks a billing row, open a detailed drill-down showing:
+
+- Complete cost history
+- Daily consumption chart
+- Weekly consumption chart
+- Monthly consumption chart
+- Related users
+- Related warehouses
+- Related queries
+- Related tasks
+- Related dynamic tables
+- Related databases
+- Failure history
+- Performance metrics
+- Reasons for increased consumption
+- Potential optimization opportunities
+
+Support Top 10, Top 20, Top 50, Top 100 and All.
+
+Show both absolute costs and percentage contribution.
+
+Add filters for date range, account, environment, database, warehouse, application and service.
+
+**Billing accuracy rules:**
+
+- Use actual metered credits for service consumption.
+- Use applicable contract rates for estimated monetary costs.
+- Reconcile billing totals with available organization billing data.
+- Never add query-attributed compute to warehouse-metered compute as separate billed consumption.
+- Avoid double counting task or dynamic-table costs already included in warehouse compute.
+- Separate actual billed amounts, metered credits, estimated allocations and forecast values.
+- Storage charges must use applicable currency rates rather than assuming all storage is billed in compute credits.
+- Display unattributed and unallocated costs explicitly.
+- Where Snowflake cannot directly provide object-level billing, use documented allocation methodologies and label estimates clearly.
+
+---
+
+### 6. Warehouse Intelligence
+
+Create a detailed warehouse monitoring module.
+
+Display:
+
+- Warehouse name
+- Size
+- Type
+- State
+- Auto-suspend
+- Auto-resume
+- Minimum and maximum clusters
+- Scaling policy
+- Resource monitor
+- Owner
+- Total credits
+- Credits per day
+- Monthly cost
+- Total queries
+- Average execution time
+- Query queueing
+- Query concurrency
+- Load history
+- Spill metrics
+- Idle overhead estimate
+- Last query timestamp
+- Last activity timestamp
+
+Create rankings:
+
+- Most expensive warehouses
+- Least expensive warehouses
+- Most heavily utilized warehouses
+- Warehouses with excessive queuing
+- Warehouses with high idle overhead
+- Warehouses with low utilization
+- Warehouses with unusual credit growth
+
+Include warehouse right-sizing recommendations with supporting evidence.
+
+---
+
+### 7. Tasks Monitoring
+
+Display complete Snowflake task inventory.
+
+Show:
+
+- Total tasks
+- Enabled tasks
+- Suspended tasks
+- Root tasks
+- Child tasks
+- Task graphs
+- Task owners
+- Assigned warehouses
+- Serverless versus user-managed tasks
+- Schedules
+- Total executions
+- Successful executions
+- Failed executions
+- Skipped executions
+- Average execution time
+- Maximum execution time
+- Last successful execution
+- Last failed execution
+- Error messages
+- Retry history
+- Credit usage where available
+
+Provide task rankings:
+
+- Most expensive tasks
+- Most frequently executed tasks
+- Slowest tasks
+- Most frequently failing tasks
+- Tasks with increasing execution time
+- Tasks with high retry counts
+
+Clicking a task must show its execution history, SQL definition where authorized, graph dependencies, performance and cost analysis.
+
+For user-managed tasks, distinguish allocated warehouse compute estimates from directly metered serverless task costs.
+
+---
+
+### 8. Dynamic Table Intelligence
+
+Create a complete dynamic table monitoring module.
+
+Show:
+
+- Total dynamic tables
+- Database
+- Schema
+- Dynamic table name
+- Owner
+- Assigned warehouse
+- Target lag
+- Refresh mode
+- Scheduling state
+- Refresh status
+- Refresh history
+- Refresh duration
+- Successful refreshes
+- Failed refreshes
+- Refresh error details
+- Data freshness
+- Dependencies
+- Credits and estimated cost
+- Storage consumption
+
+Rank dynamic tables by:
+
+- Highest refresh compute consumption
+- Highest estimated refresh cost
+- Most frequent refreshes
+- Longest refresh duration
+- Most refresh failures
+- Highest refresh latency
+- Largest storage usage
+
+Provide recommendations for target lag, refresh frequency, query complexity and warehouse selection.
+
+Do not double count refresh costs already represented in warehouse metering.
+
+---
+
+### 9. Query Performance Analyzer
+
+Implement comprehensive query analysis.
+
+Show:
+
+- Query ID
+- Query text, subject to permissions
+- User
+- Role
+- Warehouse
+- Database
+- Schema
+- Query type
+- Execution time
+- Compilation time
+- Queue time
+- Bytes scanned
+- Partitions scanned
+- Partitions total
+- Bytes spilled
+- Rows produced
+- Error code
+- Error message
+- Query tag
+- Attributed compute credits, where available
+
+Rank:
+
+- Most expensive queries
+- Slowest queries
+- Most frequently executed queries
+- Queries with highest scanning
+- Queries with high spilling
+- Queries with high queueing
+- Failed queries
+- Repeated inefficient queries
+
+Provide SQL optimization suggestions based on measurable query characteristics.
+
+Do not claim to have inspected query profiles or execution plans unless those details were actually retrieved.
+
+---
+
+### 10. Database, Schema, Table & Storage Analytics
+
+Provide a hierarchical explorer:
+
+Account → Database → Schema → Object.
+
+Show inventory and storage usage.
+
+Include:
+
+- Database counts
+- Schema counts
+- Table counts
+- View counts
+- Dynamic table counts
+- Table storage
+- Active storage
+- Time Travel storage
+- Fail-safe storage
+- Historical growth
+- Object ownership
+- Last modification
+- Available access information
+
+Rank:
+
+- Largest databases
+- Largest schemas
+- Largest tables
+- Fastest-growing storage
+- Most expensive storage components
+- Unused or rarely accessed objects
+
+Calculate storage costs using supported usage information and documented allocation methods.
+
+---
+
+### 11. Streams, Snowpipe & Data Ingestion
+
+Monitor:
+
+- Streams
+- Stream staleness
+- Stream consumption
+- Pipes
+- Snowpipe ingestion
+- File load history
+- Files loaded
+- Bytes ingested
+- Failed loads
+- Loading latency
+- Error messages
+- Credits consumed
+- Cost trends
+
+Rank the most expensive ingestion services and the pipelines with the highest failure rates.
+
+Support identifying ingestion failures by database, schema, pipeline and time window.
+
+---
+
+### 12. Users, Roles & Security
+
+Create a read-only administration view.
+
+Display:
+
+- Human users
+- Service users
+- Active users
+- Disabled users
+- User default warehouses
+- User default roles
+- Role hierarchy
+- Warehouse grants
+- Object grants
+- Login history
+- Authentication methods where exposed
+- Query activity
+- User-level cost attribution
+- Tagging compliance
+
+Provide security observations without exposing passwords, private keys, tokens or secrets.
+
+Highlight excessive privileges and inactive accounts for review, with clear evidence.
+
+---
+
+### 13. FinOps Tagging & Cost Allocation
+
+Support cost attribution using:
+
+- Query tags
+- Object tags
+- User metadata
+- Service account mapping
+- Application mapping
+- Workload mapping
+- Team mapping
+- Cost-center mapping
+
+Create allocation reports showing:
+
+- Directly metered costs
+- Estimated attributed costs
+- Unallocated costs
+- Attribution confidence
+- Allocation methodology
+- Supporting query and metering evidence
+
+Show which teams, applications and workloads contribute most to total consumption.
+
+---
+
+### 14. Resource Monitors
+
+Display:
+
+- Resource monitor name
+- Credit quota
+- Frequency
+- Associated warehouses
+- Current consumption
+- Notification thresholds
+- Suspension thresholds
+- Trigger actions
+- Current status
+
+Provide recommended quota and notification configurations based on historical consumption.
+
+Initial version must only generate recommendations, not modify resource monitors.
+
+---
+
+### 15. Warehouse Consolidation — VDP-486
+
+Include a dedicated warehouse consolidation analysis module.
+
+Requirements:
+
+- Inventory all existing warehouses.
+- Analyze at least 90 days of usage where history is available.
+- Identify active and dormant warehouses.
+- Analyze query patterns and workload types.
+- Discover users, roles and task dependencies.
+- Identify available application and configuration references.
+- Recommend mappings from existing warehouses to six consolidated workload-based warehouses.
+- Estimate cost impact.
+- Estimate concurrency and performance risk.
+- Generate migration SQL previews.
+- Identify dependencies requiring changes in Terraform, dbt, Fivetran, Airflow, Python and GitHub Actions.
+- Generate PREPROD and PROD migration-readiness reports.
+- Provide rollback mapping.
+
+Never recommend dropping a warehouse solely because recent query counts are zero.
+
+---
+
+### 16. Optimization Intelligence
+
+Create an optimization engine using explainable, rule-based analysis.
+
+Detect:
+
+- Over-provisioned warehouses
+- Underutilized compute
+- Excessive resume overhead
+- High query queueing
+- Expensive recurring queries
+- High-frequency task executions
+- Excessive dynamic table refresh frequency
+- Storage growth anomalies
+- Unused objects
+- Cost spikes
+- Inefficient ingestion patterns
+
+Every recommendation must include:
+
+- Problem
+- Affected object
+- Current metrics
+- Supporting evidence
+- Root-cause hypothesis
+- Recommended action
+- Expected benefit
+- Estimated savings, if defensible
+- Risk
+- Confidence
+- Validation steps
+
+Do not fabricate savings percentages.
+
+---
+
+### 17. Alerts & Anomaly Detection
+
+Include:
+
+- Daily billing anomalies
+- Unusual warehouse credit growth
+- Task failures
+- Dynamic table refresh failures
+- Query performance degradation
+- Storage growth anomalies
+- Snowpipe failures
+- Resource monitor threshold alerts
+
+Provide historical alerts, severity, detection timestamp, affected objects and supporting evidence.
+
+Initial implementation should be read-only and report alerts within the dashboard.
+
+---
+
+### 18. Reports & Downloads
+
+Generate professional reports in Excel, PDF and CSV.
+
+Required reports:
+
+1. Executive Snowflake Health Report
+2. Complete Billing Report
+3. Highest-to-Lowest Cost Ranking
+4. Warehouse Cost & Performance Report
+5. Task Execution & Cost Report
+6. Dynamic Table Refresh & Cost Report
+7. Query Performance Report
+8. Database & Storage Report
+9. Snowpipe & Ingestion Report
+10. Users & Security Report
+11. Resource Monitor Report
+12. FinOps Cost Allocation Report
+13. Optimization Recommendations Report
+14. Warehouse Consolidation Readiness Report
+15. Complete Snowflake 360° Assessment Report
+
+Excel reports must contain summary tabs, detailed records, filters, totals, source timestamps and clear cost-unit labels.
+
+PDF reports must include executive summaries, charts, findings, recommendations and limitations.
+
+---
+
+### 19. Data Collection Architecture
+
+Implement modular Snowflake collectors using appropriate sources, including:
+
+- SNOWFLAKE.ACCOUNT_USAGE
+- SNOWFLAKE.ORGANIZATION_USAGE, when available
+- INFORMATION_SCHEMA
+- SHOW commands where needed
+- Query history
+- Warehouse metering history
+- Warehouse load history
+- Query attribution history
+- Task history
+- Serverless task history
+- Dynamic table refresh history
+- Storage usage history
+- Snowpipe usage history
+- Login and access history
+- Grants and object metadata
+
+Validate the exact Snowflake view names, columns, required privileges, retention and latency against official documentation before writing SQL.
+
+Do not assume every ACCOUNT_USAGE view has identical retention or latency.
+
+Implement:
+
+- Pagination for large datasets
+- Configurable lookback periods
+- Incremental collection where practical
+- Caching
+- Query timeouts
+- Retry handling
+- Connection pooling where safe
+- Collection status
+- Missing-permission detection
+- Partial-result warnings
+
+Avoid full account-history scans on every dashboard refresh.
+
+---
+
+### 20. Project Structure
+
+Create a maintainable project with the following logical structure:
+
+```text
+snowflake_360/
+├── app.py
+├── requirements.txt
+├── README.md
+├── .env.example
+├── config/
+│   ├── accounts.yaml
+│   ├── settings.yaml
+│   └── cost_rates.yaml
+├── ui/
+│   ├── overview.py
+│   ├── billing.py
+│   ├── warehouses.py
+│   ├── tasks.py
+│   ├── dynamic_tables.py
+│   ├── queries.py
+│   ├── storage.py
+│   ├── ingestion.py
+│   ├── security.py
+│   ├── finops.py
+│   ├── optimization.py
+│   └── reports.py
+├── backend/
+│   ├── connections/
+│   ├── collectors/
+│   ├── services/
+│   ├── analytics/
+│   ├── recommendations/
+│   └── reporting/
+├── sql/
+│   ├── billing/
+│   ├── warehouses/
+│   ├── tasks/
+│   ├── dynamic_tables/
+│   ├── queries/
+│   └── storage/
+├── utils/
+├── tests/
+└── docs/
+```
+
+Use reusable components and separate data collection from business logic and UI rendering.
+
+---
+
+### 21. UI/UX Requirements
+
+Create an enterprise-quality dashboard.
+
+The UI must include:
+
+- Left navigation panel
+- Global account selector
+- Environment selector
+- Date range filter
+- Search
+- Sortable tables
+- Highest-cost-first default ordering
+- Interactive charts
+- Drill-down detail panels
+- KPI cards
+- Refresh button
+- Export buttons
+- Clear error and empty-state messages
+- Last refresh timestamp
+- Data-source freshness indicators
+
+Use a clean professional design appropriate for Vertex Data Platform.
+
+Do not use a simple collection of unrelated Gradio tabs without a coherent dashboard layout.
+
+---
+
+### 22. Security & Production Requirements
+
+- Read-only Snowflake access.
+- Least-privilege Snowflake roles.
+- No hardcoded credentials.
+- Support approved SSO/key-pair authentication.
+- Protect query text and sensitive metadata according to role permissions.
+- Do not expose Snowflake secrets in UI, logs or exports.
+- Enforce access control before returning data.
+- Handle multiple users safely.
+- Avoid global mutable session state containing account credentials.
+- Maintain application error logs and data-collection audit information.
+
+---
+
+### 23. Implementation Sequence
+
+Build the application incrementally but maintain a fully integrated architecture.
+
+**Stage 1 — Foundation**
+
+Implement account connections
