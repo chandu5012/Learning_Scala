@@ -1,0 +1,52 @@
+For VDP-514 – O-series Hybrid 8.0 Data Ingestion, these are the questions I recommend discussing with Anil Golla. Since you already understand the O-series 9.0 ingestion architecture, the focus should be on differences, scope, dependencies, and implementation requirements.
+Questions for Anil – VDP-514
+1. Scope and customer versions
+1. The customer list includes O-series versions 6, 7, and 8. Are we expected to support all these versions under VDP-514, or only version 8.0?
+2. Are all the customers listed in Jira confirmed for onboarding, or is there a prioritized customer list?
+3. Should the solution support future customers running older O-series versions?
+2. Configuration and transactional data
+4. Since the Out of Scope section has been corrected, can we confirm that both configuration and transactional data ingestion are included in VDP-514?
+5. Which specific configuration tables and transactional data assets need to be ingested?
+6. Are there any differences in configuration or transactional data structures between O-series 9.0 and versions 6, 7, and 8?
+3. Historical data ingestion
+7. How much historical transactional data needs to be ingested for each customer—all available history or a specific period?
+8. Should historical data be loaded once during onboarding, followed by scheduled incremental ingestion?
+9. Do we need to handle historical data corrections, updates, and deletions?
+10. Can we reuse our existing O-series 9.0 historical ingestion framework for older versions, with only version-specific changes?
+4. Source systems and connectivity
+11. Are the source databases and technologies for older versions the same as O-series 9.0?
+12. Are there any differences in connectivity, authentication, or network restrictions for AWS and OCI customer environments?
+13. Will the VOD team provide the required source access, credentials, and connectivity details?
+14. Can we obtain sample schemas and data for versions 6, 7, and 8 to perform a gap analysis?
+5. Scheduling and Semantic layer
+15. What is the expected ingestion frequency for each customer? Is daily ingestion sufficient?
+16. Are there specific data freshness or latency requirements?
+17. Can we reuse the existing OSC Invoice Tax Transaction Semantic layer for all supported versions?
+18. Are any additional transformations, mappings, or business rules required for older versions?
+6. Ownership, dependencies and delivery
+19. Who are the technical POCs for the VOD source systems and older O-series versions?
+20. Will the VOD team handle customer communication, approvals, and the final onboarding list?
+21. What are the exact responsibilities of VDP versus the VOD team for ingestion, monitoring, validation, and support?
+22. Is the delivery dependent on TOO Phase 4, and what is the expected timeline?
+23. Should onboarding be implemented in phases based on customer priority and version compatibility?
+Message to send to Anil
+Hi Anil,
+
+We reviewed the VDP-514 requirements and the updated Jira comments. We have a few clarifications to finalize the implementation scope and technical approach.
+1. The customer list includes O-series versions 6, 7, and 8. Should we support all these versions under this Epic?
+2. Since the Out of Scope section has been corrected, can we confirm that both configuration and transactional data ingestion are included?
+3. Are there any source schema or data structure differences between O-series 9.0 and the older versions?
+4. How much historical data needs to be ingested for each customer? Can we extend our existing O-series 9.0 ingestion framework to support these versions?
+5. Are the source connectivity and authentication mechanisms the same for AWS and OCI environments?
+6. What is the expected ingestion frequency, and are there any specific data freshness requirements?
+7. Can we reuse the existing OSC Invoice Tax Transaction Semantic layer, or are additional mappings and transformations required?
+8. Could you share the relevant source-team technical POCs, sample schemas, and prioritized customer onboarding list?
+9. Please confirm the responsibilities of the VOD and VDP teams, customer approval dependencies, and expected delivery timeline.
+These details will help us complete the technical assessment, confirm the architecture, and finalize the Jira story estimates.
+
+Thanks.
+
+
+
+
+My recommendation: Prioritize confirming version coverage, configuration data scope, schema differences, historical data volume, and source-team contacts. These are the biggest unknowns affecting the VDP-514 implementation effort.
