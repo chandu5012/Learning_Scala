@@ -1,0 +1,106 @@
+## Requirement: Add Snowflake PrivateLink Connectivity Diagnostics to GitHub Actions
+
+We are experiencing Terraform Plan failures in our EU preprod Snowflake environment.
+
+**Current error:**
+```
+Error: open snowflake connection
+context deadline exceeded
+(Client.Timeout exceeded while awaiting headers)
+```
+
+The failure occurs while connecting to:
+
+`VERTEX-PREPROD_DATAPLATFORM_EU_VERTEXINC.privatelink.snowflakecomputing.com:443`
+
+All five Snowflake provider roles are timing out:
+- USERADMIN
+- SECURITYADMIN
+- ACCOUNTADMIN
+- SYSADMIN
+- AAD_PROVISIONER
+
+### Existing runner comparison
+
+Both US and EU workflows use the same self-hosted GitHub runner pool (`standard`) with the `Standard` label, but run on different AWS EC2 instances.
+
+- Successful US runner: `i-06ea84f066ae1ddd2`
+- Failed EU runner: `i-065b97ad54c54c1d7`
+- Earlier EU runner: `i-029efef042c1e9201`
+
+### Implementation requirements
+
+1. Identify the existing Terraform GitHub Actions workflow responsible for EU preprod plan execution.
+
+2. Add a new step named **Diagnose Snowflake PrivateLink Connectivity** immediately before Terraform Plan, on the same runner.
+
+3. Collect the following diagnostic information:
+
+   **Runner details**
+   - GitHub runner name and labels
+   - Hostname
+   - AWS EC2 instance ID using IMDSv2
+   - Private IP
+   - VPC ID and subnet ID, if accessible through EC2 metadata
+   - AWS region
+
+   **DNS diagnostics**
+   - Resolve the Snowflake PrivateLink hostname
+   - Display resolved IP addresses
+   - Identify DNS resolution failures
+
+   **Network diagnostics**
+   - Test TCP connectivity to port 443
+   - Test HTTPS connectivity using curl
+   - Capture HTTP status, connection time, TLS handshake time, and total response time
+   - Distinguish DNS failures, TCP timeouts, and TLS failures
+
+   **Proxy diagnostics**
+   - Identify whether HTTP_PROXY, HTTPS_PROXY, or NO_PROXY is configured
+   - Do not print proxy credentials or sensitive environment-variable values
+   - Identify whether the Snowflake PrivateLink hostname is expected to bypass the proxy
+
+4. Implement the diagnostics using Bash commands supported by the existing runner. Avoid installing additional tools unless absolutely necessary.
+
+5. Use configurable Snowflake hostname variables rather than hardcoding the EU endpoint wherever the workflow already provides an appropriate value.
+
+6. Make the diagnostic step non-blocking so that Terraform Plan still executes and its original failure remains visible.
+
+7. Add clear GitHub Actions log headings and a final diagnostic summary indicating:
+   - DNS PASS/FAIL
+   - TCP 443 PASS/FAIL
+   - HTTPS PASS/FAIL
+   - Possible network failure category
+
+8. Ensure all network tests have explicit timeouts and do not hang the workflow.
+
+9. Never print Snowflake private keys, authentication tokens, passwords, or sensitive credentials.
+
+10. Do not change Terraform provider definitions, IAM roles, Snowflake grants, Terraform resources, or deployment behavior.
+
+### US versus EU comparison
+
+Inspect the existing successful US Terraform workflow and the failing EU workflow.
+
+Compare:
+- Runner group and labels
+- AWS region
+- VPC/subnet configuration, where available
+- Snowflake endpoint hostname and PrivateLink usage
+- Network/proxy environment configuration
+
+Do not assume both runner instances have identical networking simply because they belong to the same runner pool.
+
+### Expected deliverables
+
+- Updated GitHub Actions workflow YAML
+- Reusable diagnostic script if appropriate
+- Explanation of changes
+- Expected diagnostic output
+- Troubleshooting guidance for each failure category
+
+**Important:** First inspect the existing repository and workflows. Make only minimal, targeted changes. Preserve existing Terraform Init, Validate, Plan, Apply, authentication, and environment-selection logic.
+
+Do not run Terraform Apply or modify infrastructure.
+
+The goal is to identify why the EU preprod GitHub Actions runner cannot reach Snowflake PrivateLink while the existing US Terraform workflow succeeds.
