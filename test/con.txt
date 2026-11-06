@@ -1,0 +1,138 @@
+
+Hi CEGV Team,
+
+We are preparing the Snowflake network rules and policies for the new EU Data Platform accounts:
+
+- **EU Preprod:** PREPROD_DATAPLATFORM_EU_VERTEXINC
+- **EU Production:** PROD_DATAPLATFORM_EU_VERTEXINC
+- **AWS Region:** eu-central-1 (Frankfurt)
+
+We have prepared the proposed network configuration based on the existing US Snowflake setup and available network documentation.
+
+Before proceeding with Terraform deployment, could you please validate the following IP addresses, CIDR ranges, and VPC endpoint IDs and confirm whether any additions or removals are required?
+
+### 1. NETRULE_IPV4_VERTEX – Proposed IP Allowlist
+
+**AWS gateways**
+
+| Source | IP addresses |
+|---|---|
+| AWS US East 1 | 3.215.58.58, 34.206.129.177 |
+| AWS US West 2 | 54.245.119.203, 52.10.11.100 |
+
+**Azure VPN / gateways**
+
+| Source | IP addresses |
+|---|---|
+| CSE Azure Prod VPN – Central US | 20.118.18.123, 20.84.177.227 |
+| CSE Azure Prod VPN – East US 2 | 20.85.111.191, 20.85.111.216 |
+| Azure US East VPN | 52.179.127.187 |
+| Azure France Central | 20.111.43.132, 20.111.47.79 |
+| Azure Germany West Central | 20.79.246.17, 20.79.246.48 |
+| Azure US East | 20.106.184.183, 20.55.2.74 |
+| Azure US West 2 | 20.120.250.214, 20.120.209.165 |
+| Vertex CorpIT Azure Dev/Test | 20.115.69.104 |
+
+**Corporate office networks**
+
+| Location | IP / CIDR |
+|---|---|
+| Cork | 83.147.191.88/29 |
+| KoP (Comcast) | 50.237.15.152/29 |
+| London | 80.87.28.92/30 |
+| Naperville (Comcast) | 50.216.30.26/31 |
+| PH1 office – Deprecated | 144.121.158.128/25 |
+| PH1 office (Comcast) – Deprecated | 50.205.250.96/28 |
+
+**Cisco Secure Access**
+
+| Location | IP address |
+|---|---|
+| Virginia | 151.186.182.108 |
+| Pacific | 151.186.183.115 |
+| Germany | 151.186.180.95 |
+| India South | 151.186.177.25 |
+
+**OCI networks**
+
+| Environment | IP addresses |
+|---|---|
+| OCI Production | 129.153.32.225, 129.80.125.121, 150.136.42.20 |
+| OCI Development | 150.136.217.37, 150.136.37.215, 150.136.141.245 |
+
+**Additional IPs listed in the network documentation but not currently included**
+
+| Source | IP addresses |
+|---|---|
+| Mumbai | 151.186.136.71 |
+| Chennai | 151.186.135.71 |
+| Miami | 151.186.128.160 |
+| Reston | 151.186.129.183 |
+| Los Angeles | 151.186.131.98 |
+| San Jose | 151.186.130.95 |
+| CorpIT Azure Dev/Test AZ2 | 40.76.142.244 |
+
+Could you please confirm:
+
+- Which IPs are currently active and approved for EU Snowflake?
+- Should we include the additional Cisco Secure Access locations?
+- Can the deprecated PH1 office ranges be removed?
+- Are the private network ranges `10.7.11.0/24`, `10.150.0.0/16`, and `10.254.6.24` required for EU access? Please confirm the intended CIDR notation where applicable.
+- Are there any other EU-specific VPN or corporate egress IPs missing?
+
+### 2. NETRULE_PRIVATE_ENDPOINTS_VERTEX – Proposed AWS PrivateLink Endpoints
+
+Our current Terraform configuration contains:
+
+| # | VPC endpoint ID | Reference |
+|---|---|---|
+| 1 | `vpce-040a73af4e59deccf` | EU Preprod PrivateLink |
+| 2 | `vpce-06ff61733da0d7f86` | Shared / US environment |
+| 3 | `vpce-0d35f63f826980772` | EU Central / Stage reference |
+| 4 | `vpce-08ad1688757c809d4` | VCMS Prod/Preprod reference |
+| 5 | `vpce-01779e28be324c480` | US Sandbox reference |
+| 6 | `vpce-00f9e1d1c430fa7c0` | VCMS Preprod reference |
+
+We also identified additional endpoint references in the existing documentation that are not included in our proposed EU configuration.
+
+Could you please confirm:
+
+1. Which of these endpoint IDs are valid and approved for EU Preprod and Production?
+2. Which endpoints belong to US, EU, or shared environments?
+3. Do US/shared environments require access to EU Snowflake?
+4. Are any additional endpoints required for EU Production or EU disaster recovery?
+5. Could you confirm the exact endpoint IDs from AWS? Some documentation appears to reference VPC IDs rather than VPC endpoint IDs.
+
+### 3. GitHub Actions Runner and Connectivity
+
+We previously encountered a TCP 443 connectivity issue between the GitHub self-hosted runner and EU Snowflake PrivateLink, which was traced to Transit Gateway routing.
+
+Could you please confirm that the required routing, DNS, security group, and endpoint access configurations are in place for both EU Preprod and Production?
+
+Please also confirm whether the current runner network is covered by the proposed network rules.
+
+### 4. Network Policy Validation
+
+We plan to configure `NETPOL_VERTEX` using:
+
+- `NETRULE_IPV4_VERTEX` – Approved corporate/VPN IP addresses
+- `NETRULE_PRIVATE_ENDPOINTS_VERTEX` – Approved AWS PrivateLink endpoints
+
+Could you please confirm whether these rules cover the required administrator, GitHub Actions, and application connectivity paths?
+
+Please also identify any exceptions needed for Fivetran, Datadog, Terraform service users, or other integrations. The Snowflake Security team will review the final policy assignments before enforcement.
+
+### 5. Requested Confirmation
+
+Could you please provide the final validated configuration for both EU Preprod and Production, identifying:
+
+- Approved IP addresses and CIDR ranges
+- Approved VPC endpoint IDs
+- Entries to add or remove
+- Any additional network/routing changes required
+- Any remaining connectivity risks
+
+Once confirmed, we will update the EU Terraform configuration and proceed with the reviewed deployment.
+
+Thanks,
+Data Platform Team
